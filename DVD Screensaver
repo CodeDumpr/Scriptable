@@ -1,0 +1,82 @@
+const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+
+  let w, h;
+  function resize() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let x = w / 2;
+  let y = h / 2;
+  let dx = 3;
+  let dy = 2;
+  const logoWidth = 100;
+  const logoHeight = 40;
+  let hue = 0;
+
+  function draw() {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.font = "bold 30px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = \`hsl(\${hue}, 100%, 50%)\`;
+    ctx.fillText("DVD", x, y);
+
+    x += dx;
+    y += dy;
+
+    let bounced = false;
+
+    if (x + logoWidth / 2 > w || x - logoWidth / 2 < 0) {
+      dx = -dx;
+      bounced = true;
+    }
+    if (y + logoHeight / 2 > h || y - logoHeight / 2 < 0) {
+      dy = -dy;
+      bounced = true;
+    }
+
+    if (bounced) {
+      hue = Math.floor(Math.random() * 360); // Change color on bounce
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+</script>
+</body>
+</html>
+`;
+
+const wv = new WebView();
+await wv.loadHTML(html);
+await wv.present();
