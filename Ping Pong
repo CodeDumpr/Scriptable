@@ -1,0 +1,202 @@
+let wv = new WebView();
+
+let html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: black;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: none;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    canvas {
+      display: block;
+      background: black;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+  const ASPECT_RATIO = 16 / 16;
+  const BASE_WIDTH = 960;
+  const BASE_HEIGHT = BASE_WIDTH / ASPECT_RATIO;
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    let scale = Math.min(screenW / BASE_WIDTH, screenH / BASE_HEIGHT);
+
+    canvas.style.width = BASE_WIDTH * scale + "px";
+    canvas.style.height = BASE_HEIGHT * scale + "px";
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = BASE_WIDTH * dpr;
+    canvas.height = BASE_HEIGHT * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  resizeCanvas();
+  window.addEventListener("resize", resizeCanvas);
+
+  const W = BASE_WIDTH;
+  const H = BASE_HEIGHT;
+  const paddleW = 10;
+  const paddleH = 100;
+  const ballRadius = 10;
+
+  let playerY = H / 2 - paddleH / 2;
+  let aiY = H / 2 - paddleH / 2;
+  let ballX = W / 2;
+  let ballY = H / 2;
+  let ballSpeedX = 30;
+  let ballSpeedY = 30;
+
+  let playerScore = 0;
+  let aiScore = 0;
+  let ballCooldown = false;
+  let countdown = 0;
+
+  function resetBall(direction = 1) {
+    ballCooldown = true;
+    playerY = aiY = H / 2 - paddleH / 2;
+    countdown = 3;
+
+    const interval = setInterval(() => {
+      countdown--;
+      if (countdown <= 0) {
+        clearInterval(interval);
+        ballX = W / 2;
+        ballY = H / 2;
+        ballSpeedX = 20 * direction;
+        ballSpeedY = (Math.random() - 0.5) * 12;
+        ballCooldown = false;
+      }
+    }, 1000);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Center line
+    ctx.strokeStyle = "gray";
+    ctx.setLineDash([10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 0);
+    ctx.lineTo(W / 2, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Score
+    ctx.fillStyle = "white";
+    ctx.font = "48px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(\`\${playerScore}   \${aiScore}\`, W / 2, 60);
+
+    // Countdown
+    if (ballCooldown && countdown > 0) {
+      ctx.font = "72px sans-serif";
+      ctx.fillText(countdown.toString(), W / 2, H / 2);
+    }
+
+    // Paddles
+    ctx.fillRect(0, playerY, paddleW, paddleH);
+    ctx.fillRect(W - paddleW, aiY, paddleW, paddleH);
+
+    // Ball
+    if (!ballCooldown || countdown <= 0) {
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function update() {
+    if (ballCooldown || countdown > 0) return;
+
+    ballX += ballSpeedX;
+    ballY += ballSpeedY;
+
+    // Wall bounce
+    if (ballY - ballRadius < 0 || ballY + ballRadius > H) {
+      ballSpeedY *= -1;
+      ballY = Math.max(ballRadius, Math.min(H - ballRadius, ballY));
+    }
+
+    // Player paddle
+    if (ballX - ballRadius <= paddleW &&
+        ballY > playerY && ballY < playerY + paddleH) {
+      ballX = paddleW + ballRadius;
+      ballSpeedX *= -1;
+    }
+
+    // AI paddle
+    if (ballX + ballRadius >= W - paddleW &&
+        ballY > aiY && ballY < aiY + paddleH) {
+      ballX = W - paddleW - ballRadius;
+      ballSpeedX *= -1;
+    }
+
+    // Score check
+    if (ballX < -ballRadius) {
+      aiScore++;
+      resetBall(1);
+    }
+    if (ballX > W + ballRadius) {
+      playerScore++;
+      resetBall(-1);
+    }
+
+    // AI tracking
+    const aiCenter = aiY + paddleH / 2;
+    if (aiCenter < ballY - 10) aiY += 6;
+    else if (aiCenter > ballY + 10) aiY -= 6;
+
+    // Clamp
+    playerY = Math.max(0, Math.min(H - paddleH, playerY));
+    aiY = Math.max(0, Math.min(H - paddleH, aiY));
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  let lastTouchY = null;
+  canvas.addEventListener("touchstart", e => {
+    lastTouchY = e.touches[0].clientY;
+  });
+  canvas.addEventListener("touchmove", e => {
+    const y = e.touches[0].clientY;
+    const dy = (y - lastTouchY) * 1.2;
+    playerY += dy;
+    playerY = Math.max(0, Math.min(H - paddleH, playerY));
+    lastTouchY = y;
+    e.preventDefault();
+  }, { passive: false });
+
+  resetBall();
+  loop();
+</script>
+</body>
+</html>
+`;
+
+await wv.loadHTML(html);
+await wv.present(false);
