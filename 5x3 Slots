@@ -1,313 +1,320 @@
-// Jokerr's Scriptable Slot Machine (Revised Public Version)
+// Jokerr's Scriptable Slot Machine (Centered Grid, Standard Emoji Size)
 
-const balanceKey = "slot_balance";
-const betKey = "slot_bet";
-const nameKey = "slot_player";
-const avatarKey = "slot_avatar";
-
+const saveKey = "slot_data";
 const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸"];
 const symbolPool = [
-  "🍒", "🍒", "🍒", "🍒", "🍒", "🍒",
-  "🍋", "🍋", "🍋", "🍋", "🍋",
-  "🍉", "🍉", "🍉", "🍉",
-  "🔔", "🔔", "🔔",
-  "💎", "💎",
-  "7️⃣",
-  "⭐"
+  "🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫",
+  "🍄","🍄","🍄","🍄","🍄",
+  "🍃","🍃","🍃","🍃",
+  "🚬","🚬","🚬",
+  "💊","💊",
+  "💨",
+  "🌿"
 ];
-
 const payouts = {
-  "🍒": 5,
-  "🍋": 6,
-  "🍉": 7,
-  "🔔": 10,
-  "💎": 15,
-  "7️⃣": 30,
-  "⭐": 50
+  "🍄‍🟫": 20,
+  "🍄": 24,
+  "🍃": 28,
+  "🚬": 40,
+  "💊": 60,
+  "💨": 120,
+  "🌿": 200
 };
 
-let balance = parseInt(await Keychain.get(balanceKey) || "1000");
-let bet = parseInt(await Keychain.get(betKey) || "50");
-let playerName = await Keychain.get(nameKey);
-let avatar = await Keychain.get(avatarKey);
-
-if (!playerName) {
-  const alert = new Alert();
-  alert.title = "Enter your player name";
-  alert.addTextField("Your name");
-  alert.addAction("OK");
-  await alert.present();
-  playerName = alert.textFieldValue(0) || "Guest";
-  await Keychain.set(nameKey, playerName);
+let data = {};
+try {
+  let raw = await Keychain.get(saveKey);
+  if (raw) data = JSON.parse(raw);
+} catch (e) {}
+if (!data.name) {
+  const a = new Alert();
+  a.title = "Enter your player name";
+  a.addTextField("Your name");
+  a.addAction("OK");
+  await a.present();
+  data.name = a.textFieldValue(0) || "Guest";
+}
+if (!data.avatar) {
+  const b = new Alert();
+  b.title = "Choose your avatar";
+  avatarOptions.forEach(a => b.addAction(a));
+  const choice = await b.present();
+  data.avatar = avatarOptions[choice];
 }
 
-if (!avatar) {
-  const avatarAlert = new Alert();
-  avatarAlert.title = "Choose your avatar";
-  avatarOptions.forEach(a => avatarAlert.addAction(a));
-  const choice = await avatarAlert.present();
-  avatar = avatarOptions[choice];
-  await Keychain.set(avatarKey, avatar);
-}
+data.balance = data.balance ?? 15000;
+data.bet = data.bet ?? 50;
+data.freeSpins = data.freeSpins ?? 0;
 
-const isAdmin = playerName === "Jokerr";
+await Keychain.set(saveKey, JSON.stringify(data));
+const isAdmin = data.name === "Jokerr";
 
-const html = `<!DOCTYPE html>
+const html = `
+<!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
   <style>
-    body { font-family: -apple-system; background: #111; color: white; margin: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
-    #avatar { font-size: 48px; margin-top: 10px; }
-    #playerName { font-size: 18px; }
-    #topBar { display: flex; justify-content: space-between; width: 90%; margin-top: 10px; font-size: 16px; }
-    #balance { font-weight: bold; transition: color 0.3s; }
-    #controls { display: flex; align-items: center; gap: 6px; }
-    #slot { display: grid; grid-template-columns: repeat(5, 60px); grid-template-rows: repeat(3, 60px); gap: 6px; margin: 15px auto; }
-    .cell { width: 60px; height: 60px; font-size: 40px; display: flex; justify-content: center; align-items: center; background: #222; border-radius: 10px; transition: transform 0.2s, background-color 0.2s; }
-    .win { background-color: #ffd700; transform: scale(1.1); }
-    select, button, input { font-size: 16px; padding: 5px 10px; border-radius: 6px; border: none; }
-    #message { text-align: center; font-weight: bold; margin-top: 10px; }
-    #adminPanel { display: ${isAdmin ? "block" : "none"}; margin-top: 10px; padding: 10px; background: #222; border: 1px solid #444; border-radius: 8px; }
-    .adminRow { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-user-select: none; user-select: none; }
+    body {
+      font-family: -apple-system;
+      background: #111;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px;
+    }
+    #avatar {
+      font-size: 48px;
+      margin-top: 10px;
+    }
+    #playerName {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    #topBar {
+      font-size: 16px;
+      font-weight: bold;
+      margin: 6px 0 12px 0;
+    }
+    #balance {
+      transition: color 0.3s;
+    }
+    #slot {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      width: 100%;
+      max-width: 400px;
+      aspect-ratio: 5 / 3;
+      margin: 10px 0;
+    }
+    .cell {
+      background-color: #222;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      min-height: 0;
+      min-width: 0;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+    .win {
+      background-color: #ffd700;
+      transform: scale(1.1);
+    }
+    select, button, input {
+      font-size: 16px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: none;
+      margin: 4px;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 8px;
+      text-align: center;
+    }
+    #adminPanel {
+      display: ${isAdmin ? "block" : "none"};
+      margin-top: 12px;
+      padding: 8px;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 8px;
+    }
+    .adminRow {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    #autoBtn {
+      width: 80px;
+      background-color: red;
+      color: white;
+    }
+    #spinBtn {
+      width: 80px;
+    }
   </style>
 </head>
 <body>
-  <div id="avatar">${avatar}</div>
-  <div id="playerName">${playerName}</div>
-  <div id="topBar">
-    <div id="balance">Balance: $${balance.toLocaleString()}</div>
-    <div id="controls">
-      <select id="betSelector">
-        <option value="1">$1</option>
-        <option value="5">$5</option>
-        <option value="10">$10</option>
-        <option value="20">$20</option>
-        <option value="50">$50</option>
-        <option value="100">$100</option>
-        <option value="250">$250</option>
-        <option value="500">$500</option>
-        <option value="1000">$1,000</option>
-        <option value="2500">$2,500</option>
-        <option value="5000">$5,000</option>
-        <option value="10000">$10,000</option>
-        <option value="25000">$25,000</option>
-        <option value="50000">$50,000</option>
-        <option value="100000">$100,000</option>
-        <option value="500000">$500,000</option>
-        <option value="1000000">$1,000,000</option>
-        <option value="max">Max Bet</option>
-      </select>
-      <button id="spinBtn">Spin</button>
-    </div>
-  </div>
+  <div id="avatar">${data.avatar}</div>
+  <div id="playerName">${data.name}</div>
+  <div id="topBar"><div id="balance">Balance: $${data.balance.toLocaleString()}</div></div>
   <div id="slot"></div>
+  <div id="controls">
+    <button id="autoBtn"></button>
+    <button id="spinBtn">Spin</button>
+    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
+  </div>
   <div id="message"></div>
-
   <div id="adminPanel">
     <div><strong>Admin Panel</strong></div>
-    <div class="adminRow">
-      <label>Always Win:</label>
-      <input type="checkbox" id="alwaysWinToggle" />
-    </div>
-    <div class="adminRow">
-      <button onclick="grantFreeSpins()">Grant 25 Free Spins</button>
-    </div>
+    <div class="adminRow"><label>Always Win:</label><input type="checkbox" id="alwaysWinToggle" /></div>
+    <div class="adminRow"><button onclick="grantFreeSpins()">+50 Spins</button></div>
   </div>
-
-  <audio id="spinSound" src="https://github.com/CodeDumpr/Scriptable/raw/main/spin.wav" preload="auto"></audio>
-  <audio id="winSound" src="https://github.com/CodeDumpr/Scriptable/raw/main/win.wav" preload="auto"></audio>
-  <audio id="jackpotSound" src="https://github.com/CodeDumpr/Scriptable/raw/main/jackpot.wav" preload="auto"></audio>
-
   <script>
-    const symbolPool = ${JSON.stringify(symbolPool)};
+    const pool = ${JSON.stringify(symbolPool)};
     const payouts = ${JSON.stringify(payouts)};
-    let balance = ${balance}, bet = ${bet};
-    let alwaysWin = false;
-    let freeSpins = 0;
+    let balance = ${data.balance}, bet = ${data.bet}, freeSpins = ${data.freeSpins}, alwaysWin = false;
+    let autoSpin = false, autoSpinTimeout = null;
 
-    const slot = document.getElementById("slot");
     const balanceDisplay = document.getElementById("balance");
+    const slot = document.getElementById("slot");
     const message = document.getElementById("message");
     const betSelector = document.getElementById("betSelector");
+    const autoBtn = document.getElementById("autoBtn");
 
-    const spinSound = document.getElementById("spinSound");
-    const winSound = document.getElementById("winSound");
-    const jackpotSound = document.getElementById("jackpotSound");
+    function updateAutoBtnStyle() {
+      autoBtn.style.backgroundColor = autoSpin ? "green" : "red";
+      autoBtn.textContent = autoSpin ? "Auto On" : "Auto Off";
+    }
 
     function updateBalanceDisplay(newVal) {
       const delta = newVal - balance;
-      const color = delta > 0 ? "#0f0" : (delta < 0 ? "#f33" : "white");
-      balanceDisplay.style.color = color;
       balance = newVal;
       balanceDisplay.textContent = "Balance: $" + balance.toLocaleString();
+      balanceDisplay.style.color = delta > 0 ? "#0f0" : (delta < 0 ? "#f33" : "white");
       setTimeout(() => balanceDisplay.style.color = "white", 600);
     }
 
-    function getRandomSymbol() {
-      return symbolPool[Math.floor(Math.random() * symbolPool.length)];
+    function getSymbol() {
+      return pool[Math.floor(Math.random() * pool.length)];
     }
 
-    function drawReels(reels, winningCells = []) {
+    function draw(reels, wins=[]) {
       slot.innerHTML = "";
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 5; x++) {
-          const div = document.createElement("div");
-          div.className = "cell";
-          div.dataset.row = y;
-          div.dataset.col = x;
-          div.textContent = reels[x][y];
-          if (winningCells.some(p => p.x === x && p.y === y)) div.classList.add("win");
-          slot.appendChild(div);
+          let cell = document.createElement("div");
+          cell.className = "cell";
+          cell.textContent = reels[x][y];
+          if (wins.some(p => p.x === x && p.y === y)) cell.classList.add("win");
+          slot.appendChild(cell);
         }
       }
     }
 
     async function spinReels() {
-  spinSound.play();
-  const reels = Array.from({ length: 5 }, () => Array(3).fill(""));
-
-  for (let x = 0; x < 5; x++) {
-    for (let t = 0; t < 10 + x * 3; t++) {
-      for (let y = 0; y < 3; y++) {
-        if (alwaysWin) {
-          // Guarantee high payout symbol in all lines
-          const symbols = ["⭐", "7️⃣", "💎"];
-          reels[x][y] = symbols[Math.floor(Math.random() * symbols.length)];
-        } else {
-          reels[x][y] = getRandomSymbol();
+      const reels = Array.from({ length: 5 }, () => Array(3).fill(""));
+      for (let x = 0; x < 5; x++) {
+        for (let t = 0; t < 10 + x * 3; t++) {
+          for (let y = 0; y < 3; y++) reels[x][y] = alwaysWin ? "🌿" : getSymbol();
+          draw(reels);
+          await new Promise(r => setTimeout(r, 50));
         }
       }
-      drawReels(reels);
-      await new Promise(r => setTimeout(r, 50));
-    }
-  }
-
-  if (alwaysWin) {
-    // Overwrite center line with guaranteed matching high-value symbol
-    const forceSymbol = "⭐";
-    for (let x = 0; x < 5; x++) {
-      reels[x][1] = forceSymbol;
+      return reels;
     }
 
-    // Also overwrite a diagonal for extra win
-    for (let i = 0; i < 5; i++) {
-      reels[i][i < 3 ? i : 4 - i] = forceSymbol;
-    }
-  }
-
-  return reels;
-}
-
-    function detectWins(reels) {
+    function detectWins(r) {
       const lines = [
-        [{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:3,y:0},{x:4,y:0}],
-        [{x:0,y:1},{x:1,y:1},{x:2,y:1},{x:3,y:1},{x:4,y:1}],
-        [{x:0,y:2},{x:1,y:2},{x:2,y:2},{x:3,y:2},{x:4,y:2}],
-        [{x:0,y:0},{x:1,y:1},{x:2,y:2},{x:3,y:1},{x:4,y:0}],
-        [{x:0,y:2},{x:1,y:1},{x:2,y:0},{x:3,y:1},{x:4,y:2}]
+        [0,0,1,0,2,0,3,0,4,0],
+        [0,1,1,1,2,1,3,1,4,1],
+        [0,2,1,2,2,2,3,2,4,2],
+        [0,0,1,1,2,2,3,1,4,0],
+        [0,2,1,1,2,0,3,1,4,2]
       ];
       const wins = [];
-      for (let line of lines) {
-        const first = reels[line[0].x][line[0].y];
-        const matched = [line[0]];
-        for (let i = 1; i < line.length; i++) {
-          const {x, y} = line[i];
-          if (reels[x][y] === first) matched.push({x, y});
-          else break;
+      for (let i of lines) {
+        const [x0,y0,x1,y1,x2,y2,x3,y3,x4,y4] = i;
+        const s0 = r[x0][y0], s1 = r[x1][y1], s2 = r[x2][y2], s3 = r[x3][y3], s4 = r[x4][y4];
+        if (s0 === s1 && s1 === s2 && s2 === s3 && s3 === s4) {
+          wins.push({ symbol: s0, matched: [{x:x0,y:y0},{x:x1,y:y1},{x:x2,y:y2},{x:x3,y:y3},{x:x4,y:y4}] });
         }
-        if (matched.length >= 3) wins.push({symbol: first, matched});
       }
       return wins;
     }
 
-    function getPayout(symbol, count) {
-      return (payouts[symbol] || 10) * count;
-    }
-
-    async function spin(auto = false) {
+    async function spin() {
       message.textContent = "";
-      let selected = betSelector.value;
-      bet = selected === "max" ? balance : parseInt(selected);
-
+      let sel = betSelector.value;
+      bet = sel === "max" ? balance : parseInt(sel);
       if (freeSpins <= 0 && (bet > balance || bet <= 0)) {
         message.textContent = "Not enough balance.";
+        autoSpin = false;
+        updateAutoBtnStyle();
         return;
       }
-
       if (freeSpins > 0) {
-        bet = 5000;
-        message.textContent = "Free Spin (" + freeSpins + " remaining)...";
-        await new Promise(r => setTimeout(r, 1000));
+        message.textContent = "Free Spin (" + freeSpins + " left)";
         freeSpins--;
-      } else {
-        updateBalanceDisplay(balance - bet);
-      }
+      } else updateBalanceDisplay(balance - bet);
 
       const reels = await spinReels();
       const wins = detectWins(reels);
-      let totalPayout = 0;
+      let payout = 0;
       let winCells = [];
 
-      for (let win of wins) {
-        const payout = getPayout(win.symbol, win.matched.length) * (bet / 10);
-        totalPayout += payout;
-        winCells = winCells.concat(win.matched);
+      for (let w of wins) {
+        const mult = payouts[w.symbol] || 10;
+        payout += mult * (bet / 10);
+        winCells = winCells.concat(w.matched);
       }
 
-      if (totalPayout > 0) {
-        message.textContent = \`You won $\${totalPayout.toLocaleString()}!\`;
-        (totalPayout >= 5000 ? jackpotSound : winSound).play();
-        updateBalanceDisplay(balance + totalPayout);
-        if (wins.some(w => w.symbol === "⭐" && w.matched.length >= 3)) {
-          freeSpins += 3;
-        }
-      } else {
-        message.textContent = "No win, try again!";
-      }
+      if (payout > 0) {
+        updateBalanceDisplay(balance + payout);
+        message.textContent = "You won $" + payout.toLocaleString();
+        if (wins.some(w => ["🌿","💨","🍃","💊","🚬"].includes(w.symbol))) freeSpins += 3;
+      } else message.textContent = "No win, try again.";
 
-      drawReels(reels, winCells);
+      draw(reels, winCells);
 
-      if (balance <= 0 && freeSpins === 0) {
-        freeSpins = 10;
+      if (balance <= 0.9 && freeSpins === 0) {
+        freeSpins = 30;
         message.textContent = "You're broke! Here's 10 free spins!";
       }
 
-      if (freeSpins > 0) {
-        setTimeout(() => spin(true), 1000);
-      }
+      save();
+
+      if (autoSpin && balance > 0) autoSpinTimeout = setTimeout(() => spin(), 1000);
+    }
+
+    function save() {
+      const result = {
+        balance, bet, name: "${data.name}", avatar: "${data.avatar}", freeSpins
+      };
+      window.setTimeout(() => completion(result), 500);
     }
 
     function grantFreeSpins() {
-      freeSpins += 25;
-      message.textContent = "Granted 25 free spins!";
+      freeSpins += 50;
+      message.textContent = "+50 free spins!";
     }
 
-    document.getElementById("spinBtn").addEventListener("click", () => spin(false));
-    if (![...betSelector.options].some(opt => opt.value === bet.toString())) {
-  bet = 50;
-}
-betSelector.value = bet;
-    document.getElementById("alwaysWinToggle")?.addEventListener("change", e => {
-      alwaysWin = e.target.checked;
+    autoBtn.addEventListener("click", () => {
+      autoSpin = !autoSpin;
+      updateAutoBtnStyle();
+      if (autoSpin) spin();
+      else if (autoSpinTimeout) clearTimeout(autoSpinTimeout);
     });
 
-    const initialReels = Array.from({ length: 5 }, () => Array.from({ length: 3 }, () => getRandomSymbol()));
-    drawReels(initialReels);
+    document.getElementById("spinBtn").addEventListener("click", spin);
+    document.getElementById("alwaysWinToggle").addEventListener("change", e => alwaysWin = e.target.checked);
+
+    betSelector.value = bet;
     updateBalanceDisplay(balance);
+    updateAutoBtnStyle();
+    draw(Array.from({length:5},()=>Array.from({length:3},getSymbol)));
   </script>
 </body>
-</html>`;
+</html>
+`;
 
 const wv = new WebView();
 await wv.loadHTML(html);
 const result = await wv.present(true);
-
 if (result && typeof result === 'object') {
-  if (result.balance !== undefined) {
-    await Keychain.set(balanceKey, result.balance.toString());
-  }
-  if (result.bet !== undefined) {
-    await Keychain.set(betKey, result.bet.toString());
-  }
+  await Keychain.set(saveKey, JSON.stringify(result));
 }
