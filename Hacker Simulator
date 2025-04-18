@@ -1,0 +1,120 @@
+// Hacker Simulator v2.0 – Interactive Terminal
+const web = new WebView();
+await web.loadHTML(`<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      background: #000;
+      color: #00ff00;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px;
+      margin: 0;
+    }
+    #terminal {
+      white-space: pre-wrap;
+    }
+    .input-line::before {
+      content: "> ";
+    }
+    #inputField {
+      background: transparent;
+      border: none;
+      color: #00ff00;
+      font-family: monospace;
+      font-size: 14px;
+      outline: none;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal">Welcome to HackerOS v2.0
+Type 'help' for available commands.
+
+</div>
+  <div class="input-line">
+    <input id="inputField" autofocus />
+  </div>
+
+  <script>
+    const terminal = document.getElementById("terminal");
+    const inputField = document.getElementById("inputField");
+
+    const fakeIPs = [
+      "192.168.4.77", "10.0.8.1", "172.16.22.13",
+      "203.0.113.66", "87.250.250.3"
+    ];
+
+    let missions = [
+      { id: 1, ip: fakeIPs[Math.floor(Math.random() * fakeIPs.length)], done: false },
+    ];
+
+    const tools = ["scan", "hack", "disconnect", "help"];
+
+    function print(text) {
+      terminal.innerHTML += text + "\\n";
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function processCommand(cmd) {
+      cmd = cmd.trim().toLowerCase();
+      if (cmd === "help") {
+        print("Available commands:");
+        print("- scan: Scan for targets");
+        print("- hack [ip]: Attempt to hack a target IP");
+        print("- disconnect: Clear screen");
+        print("- help: Show this message");
+      } else if (cmd === "scan") {
+        const ip = missions[0].ip;
+        print("Scanning for targets...");
+        setTimeout(() => {
+          print("Found system at " + ip);
+        }, 500);
+      } else if (cmd.startsWith("hack")) {
+        const parts = cmd.split(" ");
+        if (parts.length < 2) return print("Usage: hack [ip]");
+        const targetIP = parts[1];
+        const mission = missions.find(m => m.ip === targetIP && !m.done);
+        if (!mission) return print("No vulnerable system at " + targetIP);
+
+        print("Establishing connection to " + targetIP + "...");
+        setTimeout(() => {
+          print("Bypassing firewall...");
+          setTimeout(() => {
+            print("Brute forcing password...");
+            setTimeout(() => {
+              mission.done = true;
+              print("Access granted. Mission complete.");
+              print("New mission assigned.");
+              missions.push({
+                id: missions.length + 1,
+                ip: fakeIPs[Math.floor(Math.random() * fakeIPs.length)],
+                done: false
+              });
+            }, 1000);
+          }, 1000);
+        }, 800);
+      } else if (cmd === "disconnect") {
+        terminal.innerHTML = "";
+      } else {
+        print("Unknown command: " + cmd);
+      }
+    }
+
+    inputField.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        const cmd = inputField.value;
+        print("> " + cmd);
+        processCommand(cmd);
+        inputField.value = "";
+      }
+    });
+
+    inputField.focus();
+  </script>
+</body>
+</html>`);
+
+web.present();
