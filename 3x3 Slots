@@ -193,7 +193,7 @@ const html = `
 
       if (balance <= 0.9 && freeSpins === 0) {
         freeSpins = 30;
-        message.textContent = "You're broke! Here's 10 free spins!";
+        message.textContent = "You're broke! Here's 30 free spins!";
       }
 
       save();
