@@ -1,250 +1,196 @@
-const STATE_EMPTY = null
-const STATE_PLAYER_ONE = 1
-const STATE_PLAYER_TWO = 2
+const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #1e1e1e;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      grid-template-rows: repeat(3, 100px);
+      gap: 8px;
+    }
+    .cell {
+      background: #2e2e2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .cell.disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+    .cell:hover:not(.disabled) {
+      background: #3e3e3e;
+    }
+    #status {
+      margin-top: 24px;
+      font-size: 1.2rem;
+    }
+    #reset {
+      margin-top: 12px;
+      padding: 10px 24px;
+      font-size: 1rem;
+      background: #007aff;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #reset:hover {
+      background: #005bb5;
+    }
+  </style>
+</head>
+<body>
+  <div id="board"></div>
+  <div id="status">Your move</div>
+  <button id="reset">Restart</button>
 
-let CURRENT_PLAYER = STATE_PLAYER_ONE
-let WINNER = null
-let HAS_EMPTY_SQUARES = true
+  <script>
+    const PLAYER = "❌";
+    const AI = "⭕";
+    let board = Array(9).fill(null);
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("reset");
 
-let board = [
-  [STATE_EMPTY, STATE_EMPTY, STATE_EMPTY],
-  [STATE_EMPTY, STATE_EMPTY, STATE_EMPTY],
-  [STATE_EMPTY, STATE_EMPTY, STATE_EMPTY]
-]
+    function render() {
+      boardEl.innerHTML = "";
+      board.forEach((cell, i) => {
+        const div = document.createElement("div");
+        div.className = "cell" + (cell ? " disabled" : "");
+        div.innerText = cell || "";
+        if (!cell && !checkWinner(board)) {
+          div.onclick = () => {
+            playerMove(i);
+          };
+        }
+        boardEl.appendChild(div);
+      });
+    }
 
-let table = new UITable()
-updateTable()
-table.present()
+    function playerMove(index) {
+      if (board[index] || checkWinner(board)) return;
+      board[index] = PLAYER;
+      render();
+      if (!checkWinner(board) && board.includes(null)) {
+        setTimeout(() => {
+          aiMove();
+          render();
+        }, 200);
+      }
+      updateStatus();
+    }
 
-function updateTable() {
-  table.removeAllRows()
+    function aiMove() {
+      const best = minimax(board, AI);
+      if (best.index !== undefined) board[best.index] = AI;
+      updateStatus();
+    }
 
-  let topSpacer = new UITableRow()
-  topSpacer.height = 40
-  table.addRow(topSpacer)
+    function updateStatus() {
+      const winner = checkWinner(board);
+      if (winner) {
+        statusEl.innerText = winner === PLAYER ? "You win! (somehow...)" : "You lose!";
+      } else if (!board.includes(null)) {
+        statusEl.innerText = "It's a draw.";
+      } else {
+        statusEl.innerText = "Your move";
+      }
+    }
 
-  for (let rn = 0; rn < board.length; rn++) {
-    let cols = board[rn]
-    let row = new UITableRow()
-    row.height = 80
+    function checkWinner(b) {
+      const winPatterns = [
+        [0,1,2],[3,4,5],[6,7,8],
+        [0,3,6],[1,4,7],[2,5,8],
+        [0,4,8],[2,4,6]
+      ];
+      for (let [a,b1,c] of winPatterns) {
+        if (b[a] && b[a] === b[b1] && b[a] === b[c]) return b[a];
+      }
+      return null;
+    }
 
-    let leftSpacer = row.addText(" ")
-    leftSpacer.widthWeight = 1
+    function minimax(newBoard, player) {
+      const availSpots = newBoard.map((v,i) => v ? null : i).filter(v => v !== null);
+      const winner = checkWinner(newBoard);
+      if (winner === PLAYER) return {score: -10};
+      if (winner === AI) return {score: 10};
+      if (availSpots.length === 0) return {score: 0};
 
-    for (let cn = 0; cn < cols.length; cn++) {
-      let state = cols[cn]
-      let emoji = emojiForSquareState(state)
-      let cell
-      if (state == STATE_EMPTY && WINNER == null && HAS_EMPTY_SQUARES && CURRENT_PLAYER === STATE_PLAYER_ONE) {
-        cell = row.addButton(emoji)
-        cell.onTap = () => {
-          move(rn, cn)
-          checkForWinner()
-          checkIfHasEmptySquares()
-          changeCurrentPlayer()
-          updateTable()
-          table.reload()
-          maybeMakeAIMove()
+      const moves = [];
+
+      for (let i of availSpots) {
+        const move = {};
+        move.index = i;
+        newBoard[i] = player;
+
+        const result = minimax(newBoard, player === AI ? PLAYER : AI);
+        move.score = result.score;
+
+        newBoard[i] = null;
+        moves.push(move);
+      }
+
+      let best;
+      if (player === AI) {
+        let max = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          if (moves[i].score > max) {
+            max = moves[i].score;
+            best = i;
+          }
         }
       } else {
-        cell = row.addText(emoji)
+        let min = Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          if (moves[i].score < min) {
+            min = moves[i].score;
+            best = i;
+          }
+        }
       }
-      cell.centerAligned()
-      cell.widthWeight = 2
+
+      return moves[best];
     }
 
-    let rightSpacer = row.addText(" ")
-    rightSpacer.widthWeight = 1
+    resetBtn.onclick = () => {
+      board = Array(9).fill(null);
+      statusEl.innerText = "Your move";
+      render();
+    };
 
-    table.addRow(row)
-  }
+    render();
+  </script>
+</body>
+</html>
+`;
 
-  let middleSpacer = new UITableRow()
-  middleSpacer.height = 30
-  table.addRow(middleSpacer)
-
-  if (WINNER != null) {
-    let row = new UITableRow()
-    row.isHeader = true
-    let emoji = emojiForSquareState(WINNER)
-    let message = ""
-    if (emoji === "🌿") {
-      message = "🌿 Wins! Get smoked!"
-    } else if (emoji === "🔥") {
-      message = "🔥 Wins! You got burnt!"
-    } else {
-      message = emoji + " won!"
-    }
-    let cell = row.addText(message)
-    cell.titleColor = new Color("54d132")
-    cell.centerAligned()
-    table.addRow(row)
-  } else if (!HAS_EMPTY_SQUARES) {
-    let row = new UITableRow()
-    row.isHeader = true
-    let cell = row.addText("It's a tie 🤝")
-    cell.titleColor = Color.orange()
-    cell.centerAligned()
-    table.addRow(row)
-  } else {
-    let currentPlayerRow = new UITableRow()
-    let currentPlayerEmoji = emojiForSquareState(CURRENT_PLAYER)
-    let currentPlayerCell = currentPlayerRow.addText("Turn: " + currentPlayerEmoji)
-    currentPlayerCell.centerAligned()
-    table.addRow(currentPlayerRow)
-  }
-
-  let bottomSpacer = new UITableRow()
-  bottomSpacer.height = 40
-  table.addRow(bottomSpacer)
-}
-
-function move(rn, cn) {
-  board[rn][cn] = CURRENT_PLAYER
-}
-
-function changeCurrentPlayer() {
-  CURRENT_PLAYER = (CURRENT_PLAYER === STATE_PLAYER_ONE) ? STATE_PLAYER_TWO : STATE_PLAYER_ONE
-}
-
-function checkForWinner() {
-  for (let i = 0; i < board.length; i++) {
-    if (board[i][0] !== STATE_EMPTY && board[i][0] === board[i][1] && board[i][1] === board[i][2]) {
-      WINNER = board[i][0]
-      return
-    }
-    if (board[0][i] !== STATE_EMPTY && board[0][i] === board[1][i] && board[1][i] === board[2][i]) {
-      WINNER = board[0][i]
-      return
-    }
-  }
-
-  if (board[0][0] !== STATE_EMPTY && board[0][0] === board[1][1] && board[1][1] === board[2][2]) {
-    WINNER = board[0][0]
-    return
-  }
-
-  if (board[2][0] !== STATE_EMPTY && board[2][0] === board[1][1] && board[1][1] === board[0][2]) {
-    WINNER = board[2][0]
-    return
-  }
-}
-
-function checkIfHasEmptySquares() {
-  for (let rn = 0; rn < board.length; rn++) {
-    for (let cn = 0; cn < board[rn].length; cn++) {
-      if (board[rn][cn] === STATE_EMPTY) {
-        HAS_EMPTY_SQUARES = true
-        return
-      }
-    }
-  }
-  HAS_EMPTY_SQUARES = false
-}
-
-function emojiForSquareState(state) {
-  if (state == STATE_PLAYER_TWO) {
-    return "🌿"
-  } else if (state == STATE_PLAYER_ONE) {
-    return "🔥"
-  } else {
-    return "⚪️"
-  }
-}
-
-function minimax(board, depth, isMaximizing) {
-  let scores = {
-    [STATE_PLAYER_ONE]: -10,
-    [STATE_PLAYER_TWO]: 10,
-    tie: 0
-  }
-
-  let winner = checkWinnerForAI(board)
-  if (winner !== null) {
-    return scores[winner]
-  }
-
-  let possibleMoves = getPossibleMoves(board)
-  if (possibleMoves.length === 0) return scores.tie
-
-  if (isMaximizing) {
-    let bestScore = -Infinity
-    for (let move of possibleMoves) {
-      let row = move[0]
-      let col = move[1]
-
-      board[row][col] = STATE_PLAYER_TWO
-      let score = minimax(board, depth + 1, false)
-      board[row][col] = STATE_EMPTY
-      bestScore = Math.max(score, bestScore)
-    }
-    return bestScore
-  } else {
-    let bestScore = Infinity
-    for (let move of possibleMoves) {
-      let row = move[0]
-      let col = move[1]
-
-      board[row][col] = STATE_PLAYER_ONE
-      let score = minimax(board, depth + 1, true)
-      board[row][col] = STATE_EMPTY
-      bestScore = Math.min(score, bestScore)
-    }
-    return bestScore
-  }
-}
-
-function getPossibleMoves(board) {
-  let moves = []
-  for (let i = 0; i < board.length; i++) {
-    for (let j = 0; j < board[i].length; j++) {
-      if (board[i][j] === STATE_EMPTY) {
-        moves.push([i, j])
-      }
-    }
-  }
-  return moves
-}
-
-function checkWinnerForAI(board) {
-  for (let i = 0; i < 3; i++) {
-    if (board[i][0] === board[i][1] && board[i][1] === board[i][2] && board[i][0] !== STATE_EMPTY) return board[i][0]
-    if (board[0][i] === board[1][i] && board[1][i] === board[2][i] && board[0][i] !== STATE_EMPTY) return board[0][i]
-  }
-  if (board[0][0] === board[1][1] && board[1][1] === board[2][2] && board[0][0] !== STATE_EMPTY) return board[0][0]
-  if (board[2][0] === board[1][1] && board[1][1] === board[0][2] && board[2][0] !== STATE_EMPTY) return board[2][0]
-  return null
-}
-
-function maybeMakeAIMove() {
-  if (CURRENT_PLAYER !== STATE_PLAYER_TWO || WINNER !== null || !HAS_EMPTY_SQUARES) return
-
-  let bestScore = -Infinity
-  let bestMove = null
-  let possibleMoves = getPossibleMoves(board)
-
-  for (let moveOption of possibleMoves) {
-    let row = moveOption[0]
-    let col = moveOption[1]
-
-    board[row][col] = STATE_PLAYER_TWO
-    let score = minimax(board, 0, false)
-    board[row][col] = STATE_EMPTY
-
-    if (score > bestScore) {
-      bestScore = score
-      bestMove = moveOption
-    }
-  }
-
-  if (bestMove) {
-    let row = bestMove[0]
-    let col = bestMove[1]
-    move(row, col)
-    checkForWinner()
-    checkIfHasEmptySquares()
-    changeCurrentPlayer()
-    updateTable()
-    table.reload()
-  }
-}
+const wv = new WebView();
+await wv.loadHTML(html);
+await wv.present();
