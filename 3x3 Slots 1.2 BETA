@@ -1,0 +1,537 @@
+// Jokerr's 3x3 Slot Machine (Simplified Version) with XP System
+const saveKey = "slot_data_v4";
+const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸"];
+const symbolPool = [
+  "🪙","🪙","🪙","🪙","🪙",
+  "🍋","🍋","🍋","🍋",
+  "🔔","🔔","🔔",
+  "🍉","🍉",
+  "🍒",
+  "7️⃣",
+  "💎"
+];
+const payouts = {
+  "🪙": [0, 2, 10, 50],
+  "🍋": [0, 3, 15, 75],
+  "🔔": [0, 5, 25, 100],
+  "🍉": [0, 10, 50, 200],
+  "🍒": [0, 15, 75, 300],
+  "7️⃣": [0, 25, 100, 500],
+  "💎": [0, 50, 200, 1000]
+};
+
+async function loadGameState() {
+  try {
+    const raw = await Keychain.get(saveKey);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.log("Load error:", e);
+    return {};
+  }
+}
+
+async function saveGameState(newData) {
+  try {
+    const existing = await loadGameState();
+    const merged = {
+      ...existing,
+      ...newData,
+      balance: Number(newData.balance) || existing.balance || 15000,
+      bet: Number(newData.bet) || existing.bet || 50,
+      name: newData.name || existing.name || "Guest",
+      avatar: newData.avatar || existing.avatar || "🐵",
+      xp: Number(newData.xp) || existing.xp || 0,
+      level: Number(newData.level) || existing.level || 1,
+      freeSpins: Number(newData.freeSpins) || existing.freeSpins || 0
+    };
+    await Keychain.set(saveKey, JSON.stringify(merged));
+    return true;
+  } catch (e) {
+    console.log("Save error:", e);
+    return false;
+  }
+}
+
+let data = await loadGameState();
+
+// Player setup if new
+if (!data.name) {
+  const a = new Alert();
+  a.title = "Enter your player name";
+  a.addTextField("Your name");
+  a.addAction("OK");
+  await a.present();
+  data.name = a.textFieldValue(0) || "Guest";
+}
+
+if (!data.avatar) {
+  const b = new Alert();
+  b.title = "Choose your avatar";
+  avatarOptions.forEach(a => b.addAction(a));
+  const choice = await b.present();
+  data.avatar = avatarOptions[choice];
+}
+
+// Set defaults
+data.balance = data.balance ?? 15000;
+data.bet = data.bet ?? 50;
+data.xp = data.xp ?? 0;
+data.level = data.level ?? 1;
+data.freeSpins = data.freeSpins ?? 0;
+
+function calculateXPToNextLevel(currentLevel) {
+  return Math.floor(100 * Math.pow(currentLevel, 1.3));
+}
+
+data.xpToNextLevel = calculateXPToNextLevel(data.level);
+
+const isAdmin = data.name === "Jokerr";
+
+const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-user-select: none; user-select: none; }
+    body {
+      font-family: -apple-system;
+      background: #111;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px;
+    }
+    #avatar {
+      font-size: 48px;
+      margin-top: 10px;
+    }
+    #playerName {
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+    #xpContainer {
+      width: 80%;
+      max-width: 200px;
+      height: 12px;
+      background: #333;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    #xpBar {
+      height: 100%;
+      background: linear-gradient(to right, #4CAF50, #8BC34A);
+      width: ${(data.xp / data.xpToNextLevel * 100)}%;
+      transition: width 0.5s;
+    }
+    #xpText {
+      font-size: 10px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    #topBar {
+      font-size: 16px;
+      font-weight: bold;
+      margin: 6px 0 12px 0;
+    }
+    #balance {
+      transition: color 0.3s;
+    }
+    #slot {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      width: 100%;
+      max-width: 300px;
+      aspect-ratio: 1;
+      margin: 10px 0;
+    }
+    .cell {
+      background-color: #222;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42px;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+    .win {
+      background-color: #ffd700;
+      transform: scale(1.1);
+    }
+    select, button, input {
+      font-size: 16px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: none;
+      margin: 4px;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 40px;
+    }
+    #adminPanel {
+      display: ${isAdmin ? "block" : "none"};
+      margin-top: 12px;
+      padding: 8px;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 8px;
+    }
+    .adminRow {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    #spinBtn {
+      width: 80px;
+      background-color: #4CAF50;
+      color: white;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    .cheat-active {
+      box-shadow: 0 0 10px gold;
+    }
+    #freeSpinsBadge {
+      background: #FF9800;
+      color: white;
+      border-radius: 10px;
+      padding: 2px 8px;
+      font-size: 12px;
+      margin-top: 4px;
+      display: ${data.freeSpins > 0 ? "block" : "none"};
+    }
+    .level-up {
+      animation: pulse 0.5s 3;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div id="avatar">${data.avatar}</div>
+  <div id="playerName">${data.name}</div>
+  <div id="xpContainer">
+    <div id="xpBar"></div>
+  </div>
+  <div id="xpText">Level ${data.level} (${Math.floor(data.xp)}/${data.xpToNextLevel})</div>
+  <div id="freeSpinsBadge">${data.freeSpins} Free Spins!</div>
+  <div id="topBar"><div id="balance">Balance: $${data.balance.toLocaleString()}</div></div>
+  <div id="slot"></div>
+  <div id="controls">
+    <button id="spinBtn">Spin</button>
+    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option ${data.bet === v ? "selected" : ""} value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
+  </div>
+  <div id="message"></div>
+  <div id="adminPanel">
+    <div><strong>Admin Panel</strong></div>
+    <div class="adminRow"><label>Always Win:</label><input type="checkbox" id="alwaysWinToggle" /></div>
+    <div class="adminRow"><button onclick="addCoins()">+$1B</button></div>
+  </div>
+  <script>
+    const pool = ${JSON.stringify(symbolPool)};
+    const payouts = ${JSON.stringify(payouts)};
+    let balance = ${data.balance}, bet = ${data.bet}, alwaysWin = false;
+    let isSpinning = false;
+    let lastSaveTime = 0;
+    let xp = ${data.xp};
+    let level = ${data.level};
+    let xpToNextLevel = ${data.xpToNextLevel};
+    let freeSpins = ${data.freeSpins};
+
+    const balanceDisplay = document.getElementById("balance");
+    const slot = document.getElementById("slot");
+    const message = document.getElementById("message");
+    const betSelector = document.getElementById("betSelector");
+    const spinBtn = document.getElementById("spinBtn");
+    const alwaysWinToggle = document.getElementById("alwaysWinToggle");
+    const xpBar = document.getElementById("xpBar");
+    const xpText = document.getElementById("xpText");
+    const freeSpinsBadge = document.getElementById("freeSpinsBadge");
+
+    function updateBalanceDisplay(newVal) {
+      const delta = newVal - balance;
+      balance = newVal;
+      balanceDisplay.textContent = "Balance: $" + balance.toLocaleString();
+      balanceDisplay.style.color = delta > 0 ? "#0f0" : (delta < 0 ? "#f33" : "white");
+      setTimeout(() => balanceDisplay.style.color = "white", 600);
+    }
+
+    function updateXpDisplay(newXp, newLevel = level) {
+      xp = newXp;
+      level = newLevel;
+      xpToNextLevel = calculateXPToNextLevel(level);
+      xpBar.style.width = (xp / xpToNextLevel * 100) + "%";
+      xpText.textContent = "Level " + level + " (" + Math.floor(xp) + "/" + xpToNextLevel + ")";
+      
+      if (newLevel > level) {
+        xpText.classList.add("level-up");
+        setTimeout(() => xpText.classList.remove("level-up"), 1500);
+      }
+    }
+
+    function updateFreeSpinsDisplay(count) {
+      freeSpins = count;
+      freeSpinsBadge.textContent = freeSpins + " Free Spins!";
+      freeSpinsBadge.style.display = freeSpins > 0 ? "block" : "none";
+    }
+
+    function calculateXPToNextLevel(currentLevel) {
+      return Math.floor(100 * Math.pow(currentLevel, 1.3));
+    }
+
+    function checkLevelUp() {
+      let leveledUp = false;
+      let newLevel = level;
+      let remainingXP = xp;
+      
+      // Handle multiple level-ups if XP exceeds multiple levels
+      while (remainingXP >= xpToNextLevel) {
+        remainingXP -= xpToNextLevel;
+        newLevel++;
+        xpToNextLevel = calculateXPToNextLevel(newLevel);
+        leveledUp = true;
+      }
+      
+      if (leveledUp) {
+        const newFreeSpins = freeSpins + (newLevel - level);
+        updateXpDisplay(remainingXP, newLevel);
+        updateFreeSpinsDisplay(newFreeSpins);
+        message.textContent = "Level Up! You've reached level " + newLevel + " and earned " + (newLevel - level) + " free spins!";
+        return true;
+      }
+      return false;
+    }
+
+    function getSymbol() {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function initializeReels() {
+      const reels = [];
+      for (let x = 0; x < 3; x++) {
+        reels[x] = [];
+        for (let y = 0; y < 3; y++) {
+          reels[x][y] = getSymbol();
+        }
+      }
+      return reels;
+    }
+
+    function draw(reels, wins=[]) {
+      slot.innerHTML = "";
+      
+      for (let y = 0; y < 3; y++) {
+        for (let x = 0; x < 3; x++) {
+          let cell = document.createElement("div");
+          cell.className = "cell";
+          cell.textContent = reels[x][y];
+          if (wins.some(p => p.x === x && p.y === y)) cell.classList.add("win");
+          slot.appendChild(cell);
+        }
+      }
+    }
+
+    async function spinReels() {
+      isSpinning = true;
+      spinBtn.disabled = true;
+      const reels = initializeReels();
+      
+      // Animation spins
+      for (let t = 0; t < 15; t++) {
+        for (let x = 0; x < 3; x++) {
+          for (let y = 0; y < 3; y++) {
+            reels[x][y] = (alwaysWin && t === 14) ? "💎" : getSymbol();
+          }
+        }
+        draw(reels);
+        await new Promise(r => setTimeout(r, 50 + t * 5));
+      }
+      
+      isSpinning = false;
+      spinBtn.disabled = false;
+      return reels;
+    }
+
+    function detectWins(reels) {
+      const wins = [];
+      const winCells = [];
+      
+      // Check horizontal lines
+      for (let y = 0; y < 3; y++) {
+        if (reels[0][y] === reels[1][y] && reels[1][y] === reels[2][y]) {
+          const symbol = reels[0][y];
+          const payout = payouts[symbol]?.[2] || 0;
+          if (payout > 0) {
+            wins.push({
+              symbol: symbol,
+              amount: payout * (bet / 10)
+            });
+            winCells.push(...[[0,y], [1,y], [2,y]].map(([x,y]) => ({x,y})));
+          }
+        }
+      }
+      
+      // Check vertical lines
+      for (let x = 0; x < 3; x++) {
+        if (reels[x][0] === reels[x][1] && reels[x][1] === reels[x][2]) {
+          const symbol = reels[x][0];
+          const payout = payouts[symbol]?.[2] || 0;
+          if (payout > 0) {
+            wins.push({
+              symbol: symbol,
+              amount: payout * (bet / 10)
+            });
+            winCells.push(...[[x,0], [x,1], [x,2]].map(([x,y]) => ({x,y})));
+          }
+        }
+      }
+      
+      // Check diagonals
+      if (reels[0][0] === reels[1][1] && reels[1][1] === reels[2][2]) {
+        const symbol = reels[0][0];
+        const payout = payouts[symbol]?.[2] || 0;
+        if (payout > 0) {
+          wins.push({
+            symbol: symbol,
+            amount: payout * (bet / 10)
+          });
+          winCells.push(...[[0,0], [1,1], [2,2]].map(([x,y]) => ({x,y})));
+        }
+      }
+      
+      if (reels[2][0] === reels[1][1] && reels[1][1] === reels[0][2]) {
+        const symbol = reels[2][0];
+        const payout = payouts[symbol]?.[2] || 0;
+        if (payout > 0) {
+          wins.push({
+            symbol: symbol,
+            amount: payout * (bet / 10)
+          });
+          winCells.push(...[[2,0], [1,1], [0,2]].map(([x,y]) => ({x,y})));
+        }
+      }
+      
+      return { wins, winCells };
+    }
+
+    async function spin() {
+      if (isSpinning) return;
+      
+      message.textContent = "";
+      let sel = betSelector.value;
+      bet = sel === "max" ? balance : parseInt(sel);
+      
+      // Use free spins first if available
+      let usedFreeSpin = false;
+      if (freeSpins > 0 && bet <= balance) {
+        updateFreeSpinsDisplay(freeSpins - 1);
+        usedFreeSpin = true;
+      } else if (bet > balance || bet <= 0) {
+        message.textContent = "Not enough balance.";
+        return;
+      } else {
+        updateBalanceDisplay(balance - bet);
+      }
+
+      const reels = await spinReels();
+      const { wins, winCells } = detectWins(reels);
+      let totalPayout = wins.reduce((sum, win) => sum + win.amount, 0);
+
+      // Calculate XP gain
+      const xpGain = (bet / 100) + (totalPayout > 0 ? (totalPayout / 500) : 0);
+      updateXpDisplay(xp + xpGain);
+      
+      if (totalPayout > 0) {
+        updateBalanceDisplay(balance + totalPayout);
+        message.textContent = "You won $" + totalPayout.toLocaleString() + "!" + 
+          (usedFreeSpin ? " (Free Spin)" : "");
+      } else {
+        message.textContent = "No win, try again." + 
+          (usedFreeSpin ? " (Free Spin)" : "");
+      }
+
+      checkLevelUp();
+      draw(reels, winCells);
+      save();
+    }
+
+    function save() {
+      const now = Date.now();
+      if (now - lastSaveTime < 1000) return;
+      lastSaveTime = now;
+      
+      const result = {
+        balance, 
+        bet,
+        name: "${data.name}", 
+        avatar: "${data.avatar}", 
+        xp,
+        level,
+        freeSpins,
+        lastSave: new Date().toISOString()
+      };
+      window.webkit.messageHandlers.scriptable.postMessage({
+        type: "save",
+        data: result
+      });
+    }
+
+    function addCoins() {
+      updateBalanceDisplay(balance + 1000000000);
+      save();
+    }
+
+    alwaysWinToggle.addEventListener("change", function(e) {
+      alwaysWin = e.target.checked;
+      document.getElementById("adminPanel").classList.toggle("cheat-active", alwaysWin);
+      save();
+    });
+
+    // Initialize game
+    spinBtn.addEventListener("click", spin);
+    betSelector.value = bet;
+    updateBalanceDisplay(balance);
+    updateXpDisplay(xp);
+    updateFreeSpinsDisplay(freeSpins);
+    
+    // Initialize and draw initial reels
+    const initialReels = initializeReels();
+    draw(initialReels);
+  </script>
+</body>
+</html>
+`;
+
+const wv = new WebView();
+await wv.loadHTML(html);
+
+wv.messageHandlers = {
+  async save(message) {
+    if (message.type === "save") {
+      await saveGameState(message.data);
+    }
+  }
+};
+
+const result = await wv.present(true);
+if (result) {
+  await saveGameState(result);
+}
