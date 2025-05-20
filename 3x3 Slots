@@ -189,7 +189,7 @@ const html = `
   <div id="adminPanel">
     <div><strong>Admin Panel</strong></div>
     <div class="adminRow"><label>Always Win:</label><input type="checkbox" id="alwaysWinToggle" /></div>
-    <div class="adminRow"><button onclick="addCoins()">+$1000</button></div>
+    <div class="adminRow"><button onclick="addCoins()">+$1B</button></div>
   </div>
   <script>
     const pool = ${JSON.stringify(symbolPool)};
@@ -360,7 +360,7 @@ const html = `
     }
 
     function addCoins() {
-      updateBalanceDisplay(balance + 15000);
+      updateBalanceDisplay(balance + 1000000000);
       save();
     }
 
