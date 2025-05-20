@@ -71,7 +71,7 @@ if (!data.avatar) {
 
 // Set defaults
 data.balance = data.balance ?? 15000;
-data.bet = data.bet ?? 10;
+data.bet = data.bet ?? 50;
 
 const isAdmin = data.name === "Jokerr";
 
