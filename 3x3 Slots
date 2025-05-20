@@ -1,31 +1,57 @@
-// Jokerr's Scriptable Slot Machine (Auto Spin UI Tweaked)
-
-const saveKey = "slot_data";
+// Jokerr's 3x3 Slot Machine (Simplified Version)
+const saveKey = "slot_data_v4";
 const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸"];
 const symbolPool = [
-  "🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫",
-  "🍄","🍄","🍄","🍄","🍄",
-  "🍃","🍃","🍃","🍃",
-  "🚬","🚬","🚬",
-  "💊","💊",
-  "💨",
-  "🌿"
+  "🪙","🪙","🪙","🪙","🪙",
+  "🍋","🍋","🍋","🍋",
+  "🔔","🔔","🔔",
+  "🍉","🍉",
+  "🍒",
+  "7️⃣",
+  "💎"
 ];
 const payouts = {
-  "🍄‍🟫": 20,
-  "🍄": 24,
-  "🍃": 28,
-  "🚬": 40,
-  "💊": 60,
-  "💨": 120,
-  "🌿": 200
+  "🪙": [0, 2, 10, 50],
+  "🍋": [0, 3, 15, 75],
+  "🔔": [0, 5, 25, 100],
+  "🍉": [0, 10, 50, 200],
+  "🍒": [0, 15, 75, 300],
+  "7️⃣": [0, 25, 100, 500],
+  "💎": [0, 50, 200, 1000]
 };
 
-let data = {};
-try {
-  let raw = await Keychain.get(saveKey);
-  if (raw) data = JSON.parse(raw);
-} catch (e) {}
+async function loadGameState() {
+  try {
+    const raw = await Keychain.get(saveKey);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.log("Load error:", e);
+    return {};
+  }
+}
+
+async function saveGameState(newData) {
+  try {
+    const existing = await loadGameState();
+    const merged = {
+      ...existing,
+      ...newData,
+      balance: Number(newData.balance) || existing.balance || 15000,
+      bet: Number(newData.bet) || existing.bet || 50,
+      name: newData.name || existing.name || "Guest",
+      avatar: newData.avatar || existing.avatar || "🐵"
+    };
+    await Keychain.set(saveKey, JSON.stringify(merged));
+    return true;
+  } catch (e) {
+    console.log("Save error:", e);
+    return false;
+  }
+}
+
+let data = await loadGameState();
+
+// Player setup if new
 if (!data.name) {
   const a = new Alert();
   a.title = "Enter your player name";
@@ -34,6 +60,7 @@ if (!data.name) {
   await a.present();
   data.name = a.textFieldValue(0) || "Guest";
 }
+
 if (!data.avatar) {
   const b = new Alert();
   b.title = "Choose your avatar";
@@ -42,75 +69,141 @@ if (!data.avatar) {
   data.avatar = avatarOptions[choice];
 }
 
+// Set defaults
 data.balance = data.balance ?? 15000;
-data.bet = data.bet ?? 50;
-data.freeSpins = data.freeSpins ?? 0;
+data.bet = data.bet ?? 10;
 
-await Keychain.set(saveKey, JSON.stringify(data));
 const isAdmin = data.name === "Jokerr";
 
 const html = `
 <!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
   <style>
-    * { -webkit-user-select: none; -webkit-touch-callout: none; user-select: none; }
-    body { font-family: -apple-system; background: #111; color: white; margin: 0; display: flex; flex-direction: column; align-items: center; }
-    #avatar { font-size: 48px; margin-top: 10px; }
-    #playerName { font-size: 18px; }
-    #topBar { display: flex; justify-content: center; width: 90%; margin-top: 10px; font-size: 16px; }
-    #balance { font-weight: bold; transition: color 0.3s; }
-    #slot { display: grid; grid-template-columns: repeat(3, 80px); grid-template-rows: repeat(3, 80px); gap: 6px; margin: 15px auto; }
-    .cell { width: 80px; height: 80px; font-size: 48px; display: flex; justify-content: center; align-items: center; background: #222; border-radius: 10px; transition: transform 0.2s, background-color 0.2s; }
-    .win { background-color: #ffd700; transform: scale(1.1); }
-    select, button, input { font-size: 16px; padding: 5px 10px; border-radius: 6px; border: none; }
-    #controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
-    #message { text-align: center; font-weight: bold; margin-bottom: 10px; }
-    #adminPanel { display: ${isAdmin ? "block" : "none"}; margin-top: 0px; padding: 10px; background: #222; border: 1px solid #444; border-radius: 8px; }
-    .adminRow { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
-    #autoBtn { width: 80px; background-color: red; color: white; }
-    #spinBtn { width: 80px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-user-select: none; user-select: none; }
+    body {
+      font-family: -apple-system;
+      background: #111;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px;
+    }
+    #avatar {
+      font-size: 48px;
+      margin-top: 10px;
+    }
+    #playerName {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    #topBar {
+      font-size: 16px;
+      font-weight: bold;
+      margin: 6px 0 12px 0;
+    }
+    #balance {
+      transition: color 0.3s;
+    }
+    #slot {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      width: 100%;
+      max-width: 300px;
+      aspect-ratio: 1;
+      margin: 10px 0;
+    }
+    .cell {
+      background-color: #222;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42px;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+    .win {
+      background-color: #ffd700;
+      transform: scale(1.1);
+    }
+    select, button, input {
+      font-size: 16px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: none;
+      margin: 4px;
+    }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    #message {
+      font-weight: bold;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 40px;
+    }
+    #adminPanel {
+      display: ${isAdmin ? "block" : "none"};
+      margin-top: 12px;
+      padding: 8px;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 8px;
+    }
+    .adminRow {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    #spinBtn {
+      width: 80px;
+      background-color: #4CAF50;
+      color: white;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    .cheat-active {
+      box-shadow: 0 0 10px gold;
+    }
   </style>
 </head>
 <body>
   <div id="avatar">${data.avatar}</div>
   <div id="playerName">${data.name}</div>
-  <div id="topBar">
-    <div id="balance">Balance: $${data.balance.toLocaleString()}</div>
-  </div>
+  <div id="topBar"><div id="balance">Balance: $${data.balance.toLocaleString()}</div></div>
   <div id="slot"></div>
-
   <div id="controls">
-    <button id="autoBtn"></button>
     <button id="spinBtn">Spin</button>
-    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
+    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000].map(v => `<option ${data.bet === v ? "selected" : ""} value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
   </div>
-  
   <div id="message"></div>
-
   <div id="adminPanel">
     <div><strong>Admin Panel</strong></div>
     <div class="adminRow"><label>Always Win:</label><input type="checkbox" id="alwaysWinToggle" /></div>
-    <div class="adminRow"><button onclick="grantFreeSpins()">+50 Spins</button></div>
+    <div class="adminRow"><button onclick="addCoins()">+$1000</button></div>
   </div>
-
   <script>
     const pool = ${JSON.stringify(symbolPool)};
     const payouts = ${JSON.stringify(payouts)};
-    let balance = ${data.balance}, bet = ${data.bet}, freeSpins = ${data.freeSpins}, alwaysWin = false;
-    let autoSpin = false, autoSpinTimeout = null;
+    let balance = ${data.balance}, bet = ${data.bet}, alwaysWin = false;
+    let isSpinning = false;
+    let lastSaveTime = 0;
 
     const balanceDisplay = document.getElementById("balance");
     const slot = document.getElementById("slot");
     const message = document.getElementById("message");
     const betSelector = document.getElementById("betSelector");
-    const autoBtn = document.getElementById("autoBtn");
-
-    function updateAutoBtnStyle() {
-      autoBtn.style.backgroundColor = autoSpin ? "green" : "red";
-      autoBtn.textContent = autoSpin ? "Auto On" : "Auto Off";
-    }
+    const spinBtn = document.getElementById("spinBtn");
+    const alwaysWinToggle = document.getElementById("alwaysWinToggle");
 
     function updateBalanceDisplay(newVal) {
       const delta = newVal - balance;
@@ -126,115 +219,178 @@ const html = `
 
     function draw(reels, wins=[]) {
       slot.innerHTML = "";
-      for (let y=0; y<3; y++) for (let x=0; x<3; x++) {
-        let cell = document.createElement("div");
-        cell.className = "cell";
-        cell.textContent = reels[x][y];
-        if (wins.some(p => p.x === x && p.y === y)) cell.classList.add("win");
-        slot.appendChild(cell);
+      
+      for (let y = 0; y < 3; y++) {
+        for (let x = 0; x < 3; x++) {
+          let cell = document.createElement("div");
+          cell.className = "cell";
+          cell.textContent = reels[x][y];
+          if (wins.some(p => p.x === x && p.y === y)) cell.classList.add("win");
+          slot.appendChild(cell);
+        }
       }
     }
 
     async function spinReels() {
+      isSpinning = true;
+      spinBtn.disabled = true;
       const reels = Array.from({ length: 3 }, () => Array(3).fill(""));
-      for (let x = 0; x < 3; x++) {
-        for (let t = 0; t < 10 + x * 3; t++) {
-          for (let y = 0; y < 3; y++) reels[x][y] = alwaysWin ? "🌿" : getSymbol();
-          draw(reels);
-          await new Promise(r => setTimeout(r, 50));
+      
+      for (let t = 0; t < 15; t++) {
+        for (let x = 0; x < 3; x++) {
+          for (let y = 0; y < 3; y++) {
+            reels[x][y] = (alwaysWin && t === 14) ? "💎" : getSymbol();
+          }
         }
+        draw(reels);
+        await new Promise(r => setTimeout(r, 50 + t * 5));
       }
+      
+      isSpinning = false;
+      spinBtn.disabled = false;
       return reels;
     }
 
-    function detectWins(r) {
-      const lines = [[0,0,1,0,2,0],[0,1,1,1,2,1],[0,2,1,2,2,2],[0,0,1,1,2,2],[0,2,1,1,2,0]];
+    function detectWins(reels) {
       const wins = [];
-      for (let i of lines) {
-        const a = r[i[0]][i[1]], b = r[i[2]][i[3]], c = r[i[4]][i[5]];
-        if (a === b && b === c) wins.push({ symbol: a, matched: [{x:i[0],y:i[1]},{x:i[2],y:i[3]},{x:i[4],y:i[5]}] });
+      const winCells = [];
+      
+      // Check horizontal lines
+      for (let y = 0; y < 3; y++) {
+        if (reels[0][y] === reels[1][y] && reels[1][y] === reels[2][y]) {
+          const symbol = reels[0][y];
+          const payout = payouts[symbol]?.[2] || 0;
+          if (payout > 0) {
+            wins.push({
+              symbol: symbol,
+              amount: payout * (bet / 10)
+            });
+            winCells.push(...[[0,y], [1,y], [2,y]].map(([x,y]) => ({x,y})));
+          }
+        }
       }
-      return wins;
+      
+      // Check vertical lines (if you want)
+      for (let x = 0; x < 3; x++) {
+        if (reels[x][0] === reels[x][1] && reels[x][1] === reels[x][2]) {
+          const symbol = reels[x][0];
+          const payout = payouts[symbol]?.[2] || 0;
+          if (payout > 0) {
+            wins.push({
+              symbol: symbol,
+              amount: payout * (bet / 10)
+            });
+            winCells.push(...[[x,0], [x,1], [x,2]].map(([x,y]) => ({x,y})));
+          }
+        }
+      }
+      
+      // Check diagonals
+      if (reels[0][0] === reels[1][1] && reels[1][1] === reels[2][2]) {
+        const symbol = reels[0][0];
+        const payout = payouts[symbol]?.[2] || 0;
+        if (payout > 0) {
+          wins.push({
+            symbol: symbol,
+            amount: payout * (bet / 10)
+          });
+          winCells.push(...[[0,0], [1,1], [2,2]].map(([x,y]) => ({x,y})));
+        }
+      }
+      
+      if (reels[2][0] === reels[1][1] && reels[1][1] === reels[0][2]) {
+        const symbol = reels[2][0];
+        const payout = payouts[symbol]?.[2] || 0;
+        if (payout > 0) {
+          wins.push({
+            symbol: symbol,
+            amount: payout * (bet / 10)
+          });
+          winCells.push(...[[2,0], [1,1], [0,2]].map(([x,y]) => ({x,y})));
+        }
+      }
+      
+      return { wins, winCells };
     }
 
     async function spin() {
+      if (isSpinning) return;
+      
       message.textContent = "";
       let sel = betSelector.value;
       bet = sel === "max" ? balance : parseInt(sel);
-      if (freeSpins <= 0 && (bet > balance || bet <= 0)) {
+      if (bet > balance || bet <= 0) {
         message.textContent = "Not enough balance.";
-        autoSpin = false;
-        updateAutoBtnStyle();
         return;
       }
-      if (freeSpins > 0) {
-        message.textContent = "Free Spin (" + freeSpins + " left)";
-        freeSpins--;
-      } else updateBalanceDisplay(balance - bet);
+      
+      updateBalanceDisplay(balance - bet);
 
       const reels = await spinReels();
-      const wins = detectWins(reels);
-      let payout = 0;
-      let winCells = [];
+      const { wins, winCells } = detectWins(reels);
+      let totalPayout = wins.reduce((sum, win) => sum + win.amount, 0);
 
-      for (let w of wins) {
-        const mult = payouts[w.symbol] || 10;
-        payout += mult * (bet / 10);
-        winCells = winCells.concat(w.matched);
+      if (totalPayout > 0) {
+        updateBalanceDisplay(balance + totalPayout);
+        message.textContent = "You won $" + totalPayout.toLocaleString() + "!";
+      } else {
+        message.textContent = "No win, try again.";
       }
-
-      if (payout > 0) {
-        updateBalanceDisplay(balance + payout);
-        message.textContent = "You won $" + payout.toLocaleString();
-        if (wins.some(w => ["🌿","💨","🍃","💊","🚬"].includes(w.symbol))) freeSpins += 3;
-      } else message.textContent = "No win, try again.";
 
       draw(reels, winCells);
-
-      if (balance <= 0.9 && freeSpins === 0) {
-        freeSpins = 30;
-        message.textContent = "You're broke! Here's 30 free spins!";
-      }
-
       save();
-
-      if (autoSpin && balance > 0) autoSpinTimeout = setTimeout(() => spin(), 1000);
     }
 
     function save() {
+      const now = Date.now();
+      if (now - lastSaveTime < 1000) return;
+      lastSaveTime = now;
+      
       const result = {
-        balance, bet, name: "${data.name}", avatar: "${data.avatar}", freeSpins
+        balance, 
+        bet,
+        name: "${data.name}", 
+        avatar: "${data.avatar}", 
+        lastSave: new Date().toISOString()
       };
-      window.setTimeout(() => completion(result), 500);
+      window.webkit.messageHandlers.scriptable.postMessage({
+        type: "save",
+        data: result
+      });
     }
 
-    function grantFreeSpins() {
-      freeSpins += 50;
-      message.textContent = "+50 free spins!";
+    function addCoins() {
+      updateBalanceDisplay(balance + 15000);
+      save();
     }
 
-    autoBtn.addEventListener("click", () => {
-      autoSpin = !autoSpin;
-      updateAutoBtnStyle();
-      if (autoSpin) spin();
-      else if (autoSpinTimeout) clearTimeout(autoSpinTimeout);
+    alwaysWinToggle.addEventListener("change", function(e) {
+      alwaysWin = e.target.checked;
+      document.getElementById("adminPanel").classList.toggle("cheat-active", alwaysWin);
+      save();
     });
 
-    document.getElementById("spinBtn").addEventListener("click", spin);
-    document.getElementById("alwaysWinToggle").addEventListener("change", e => alwaysWin = e.target.checked);
-
+    spinBtn.addEventListener("click", spin);
     betSelector.value = bet;
     updateBalanceDisplay(balance);
-    updateAutoBtnStyle();
     draw(Array.from({length:3},()=>Array.from({length:3},getSymbol)));
   </script>
 </body>
-</html>`;
+</html>
+`;
 
-// WebView interaction
 const wv = new WebView();
 await wv.loadHTML(html);
+
+wv.messageHandlers = {
+  async save(message) {
+    if (message.type === "save") {
+      await saveGameState(message.data);
+    }
+  }
+};
+
 const result = await wv.present(true);
-if (result && typeof result === 'object') {
-  await Keychain.set(saveKey, JSON.stringify(result));
+if (result) {
+  await saveGameState(result);
 }
