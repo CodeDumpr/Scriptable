@@ -1,31 +1,62 @@
-// Jokerr's Scriptable Slot Machine (Centered Grid, Standard Emoji Size)
-
-const saveKey = "slot_data";
+// Jokerr's Scriptable Slot Machine (Simplified Version)
+const saveKey = "slot_data_v2";
 const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸"];
 const symbolPool = [
-  "🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫","🍄‍🟫",
-  "🍄","🍄","🍄","🍄","🍄",
-  "🍃","🍃","🍃","🍃",
-  "🚬","🚬","🚬",
-  "💊","💊",
-  "💨",
-  "🌿"
+  "🪙","🪙","🪙","🪙","🪙","🪙",
+  "🍋","🍋","🍋","🍋","🍋",
+  "🔔","🔔","🔔","🔔",
+  "🍉","🍉","🍉",
+  "🍒","🍒",
+  "7️⃣",
+  "💎"
 ];
 const payouts = {
-  "🍄‍🟫": 20,
-  "🍄": 24,
-  "🍃": 28,
-  "🚬": 40,
-  "💊": 60,
-  "💨": 120,
-  "🌿": 200
+  "🪙": [0, 2, 5, 20, 50],
+  "🍋": [0, 3, 6, 24, 60],
+  "🔔": [0, 4, 8, 28, 80],
+  "🍉": [0, 5, 10, 40, 100],
+  "🍒": [0, 8, 15, 60, 150],
+  "7️⃣": [0, 10, 25, 120, 300],
+  "💎": [0, 20, 50, 200, 500]
 };
 
-let data = {};
-try {
-  let raw = await Keychain.get(saveKey);
-  if (raw) data = JSON.parse(raw);
-} catch (e) {}
+// Improved load function
+async function loadGameState() {
+  try {
+    const raw = await Keychain.get(saveKey);
+    if (raw) return JSON.parse(raw);
+    return {};
+  } catch (e) {
+    console.log("Load error:", e);
+    return {};
+  }
+}
+
+// Improved save function
+async function saveGameState(newData) {
+  try {
+    const existing = await loadGameState();
+    const merged = {
+      ...existing,
+      ...newData,
+      balance: Number(newData.balance) || existing.balance || 15000,
+      bet: Number(newData.bet) || existing.bet || 50,
+      freeSpins: Number(newData.freeSpins) || existing.freeSpins || 0,
+      name: newData.name || existing.name || "Guest",
+      avatar: newData.avatar || existing.avatar || "🐵"
+    };
+    await Keychain.set(saveKey, JSON.stringify(merged));
+    return true;
+  } catch (e) {
+    console.log("Save error:", e);
+    return false;
+  }
+}
+
+// Load initial data
+let data = await loadGameState();
+
+// Player setup if new
 if (!data.name) {
   const a = new Alert();
   a.title = "Enter your player name";
@@ -34,6 +65,7 @@ if (!data.name) {
   await a.present();
   data.name = a.textFieldValue(0) || "Guest";
 }
+
 if (!data.avatar) {
   const b = new Alert();
   b.title = "Choose your avatar";
@@ -42,11 +74,11 @@ if (!data.avatar) {
   data.avatar = avatarOptions[choice];
 }
 
+// Set defaults
 data.balance = data.balance ?? 15000;
 data.bet = data.bet ?? 50;
 data.freeSpins = data.freeSpins ?? 0;
 
-await Keychain.set(saveKey, JSON.stringify(data));
 const isAdmin = data.name === "Jokerr";
 
 const html = `
@@ -89,6 +121,7 @@ const html = `
       max-width: 400px;
       aspect-ratio: 5 / 3;
       margin: 10px 0;
+      position: relative;
     }
     .cell {
       background-color: #222;
@@ -123,6 +156,7 @@ const html = `
       font-weight: bold;
       margin-top: 8px;
       text-align: center;
+      min-height: 40px;
     }
     #adminPanel {
       display: ${isAdmin ? "block" : "none"};
@@ -146,6 +180,12 @@ const html = `
     #spinBtn {
       width: 80px;
     }
+    button:disabled {
+      opacity: 0.5;
+    }
+    .cheat-active {
+      box-shadow: 0 0 10px gold;
+    }
   </style>
 </head>
 <body>
@@ -156,7 +196,7 @@ const html = `
   <div id="controls">
     <button id="autoBtn"></button>
     <button id="spinBtn">Spin</button>
-    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
+    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option ${data.bet === v ? "selected" : ""} value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
   </div>
   <div id="message"></div>
   <div id="adminPanel">
@@ -169,12 +209,49 @@ const html = `
     const payouts = ${JSON.stringify(payouts)};
     let balance = ${data.balance}, bet = ${data.bet}, freeSpins = ${data.freeSpins}, alwaysWin = false;
     let autoSpin = false, autoSpinTimeout = null;
+    let isSpinning = false;
+    let lastSaveTime = 0;
 
     const balanceDisplay = document.getElementById("balance");
     const slot = document.getElementById("slot");
     const message = document.getElementById("message");
     const betSelector = document.getElementById("betSelector");
     const autoBtn = document.getElementById("autoBtn");
+    const spinBtn = document.getElementById("spinBtn");
+    const alwaysWinToggle = document.getElementById("alwaysWinToggle");
+
+    // Define 20 paylines (common in modern slot machines)
+    const paylines = [
+      // Horizontal lines
+      [[0,0], [1,0], [2,0], [3,0], [4,0]], // Line 1 (top)
+      [[0,1], [1,1], [2,1], [3,1], [4,1]], // Line 2 (middle)
+      [[0,2], [1,2], [2,2], [3,2], [4,2]], // Line 3 (bottom)
+      
+      // V shapes
+      [[0,0], [1,1], [2,2], [1,1], [0,0]], // Line 4 (V top)
+      [[0,2], [1,1], [2,0], [1,1], [0,2]], // Line 5 (V bottom)
+      
+      // Zigzags
+      [[0,0], [1,1], [2,0], [3,1], [4,0]], // Line 6
+      [[0,2], [1,1], [2,2], [3,1], [4,2]], // Line 7
+      
+      // Steps
+      [[0,0], [1,0], [2,1], [3,1], [4,2]], // Line 8
+      [[0,2], [1,2], [2,1], [3,1], [4,0]], // Line 9
+      
+      // Other patterns
+      [[0,1], [1,0], [2,1], [3,0], [4,1]], // Line 10
+      [[0,1], [1,2], [2,1], [3,2], [4,1]], // Line 11
+      [[0,0], [1,0], [2,1], [3,2], [4,2]], // Line 12
+      [[0,2], [1,2], [2,1], [3,0], [4,0]], // Line 13
+      [[0,1], [1,0], [2,0], [3,0], [4,1]], // Line 14
+      [[0,1], [1,2], [2,2], [3,2], [4,1]], // Line 15
+      [[0,0], [1,1], [2,2], [3,2], [4,2]], // Line 16
+      [[0,2], [1,1], [2,0], [3,0], [4,0]], // Line 17
+      [[0,0], [0,1], [0,2], [1,1], [2,0]], // Line 18
+      [[2,0], [3,1], [4,0], [4,1], [4,2]], // Line 19
+      [[0,2], [1,1], [2,0], [2,1], [2,2]]  // Line 20
+    ];
 
     function updateAutoBtnStyle() {
       autoBtn.style.backgroundColor = autoSpin ? "green" : "red";
@@ -195,6 +272,8 @@ const html = `
 
     function draw(reels, wins=[]) {
       slot.innerHTML = "";
+      
+      // Create the reels
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 5; x++) {
           let cell = document.createElement("div");
@@ -207,37 +286,81 @@ const html = `
     }
 
     async function spinReels() {
+      isSpinning = true;
+      spinBtn.disabled = true;
       const reels = Array.from({ length: 5 }, () => Array(3).fill(""));
+      
       for (let x = 0; x < 5; x++) {
         for (let t = 0; t < 10 + x * 3; t++) {
-          for (let y = 0; y < 3; y++) reels[x][y] = alwaysWin ? "🌿" : getSymbol();
+          for (let y = 0; y < 3; y++) {
+            reels[x][y] = (alwaysWin && t === 10 + x * 3 - 1) ? "💎" : getSymbol();
+          }
           draw(reels);
           await new Promise(r => setTimeout(r, 50));
         }
       }
+      
+      isSpinning = false;
+      spinBtn.disabled = false;
       return reels;
     }
 
-    function detectWins(r) {
-      const lines = [
-        [0,0,1,0,2,0,3,0,4,0],
-        [0,1,1,1,2,1,3,1,4,1],
-        [0,2,1,2,2,2,3,2,4,2],
-        [0,0,1,1,2,2,3,1,4,0],
-        [0,2,1,1,2,0,3,1,4,2]
-      ];
+    function detectWins(reels) {
       const wins = [];
-      for (let i of lines) {
-        const [x0,y0,x1,y1,x2,y2,x3,y3,x4,y4] = i;
-        const s0 = r[x0][y0], s1 = r[x1][y1], s2 = r[x2][y2], s3 = r[x3][y3], s4 = r[x4][y4];
-        if (s0 === s1 && s1 === s2 && s2 === s3 && s3 === s4) {
-          wins.push({ symbol: s0, matched: [{x:x0,y:y0},{x:x1,y:y1},{x:x2,y:y2},{x:x3,y:y3},{x:x4,y:y4}] });
+      const winCells = [];
+      
+      // Check each payline
+      paylines.forEach(payline => {
+        // Get symbols along this payline
+        const lineSymbols = payline.map(([x,y]) => reels[x][y]);
+        
+        // Check for consecutive matching symbols from left
+        let currentSymbol = lineSymbols[0];
+        let count = 1;
+        let maxCount = 1;
+        
+        for (let i = 1; i < lineSymbols.length; i++) {
+          if (lineSymbols[i] === currentSymbol) {
+            count++;
+            if (count > maxCount) maxCount = count;
+          } else {
+            // Check if we have a winning sequence
+            if (count >= 3 && payouts[currentSymbol] && payouts[currentSymbol][count-1] > 0) {
+              const winAmount = payouts[currentSymbol][count-1] * (bet / 10);
+              wins.push({
+                symbol: currentSymbol,
+                count: count,
+                amount: winAmount,
+                positions: payline.slice(0, count)
+              });
+              winCells.push(...payline.slice(0, count).map(([x,y]) => ({x,y})));
+            }
+            
+            // Start new sequence
+            currentSymbol = lineSymbols[i];
+            count = 1;
+          }
         }
-      }
-      return wins;
+        
+        // Check the last sequence in the line
+        if (count >= 3 && payouts[currentSymbol] && payouts[currentSymbol][count-1] > 0) {
+          const winAmount = payouts[currentSymbol][count-1] * (bet / 10);
+          wins.push({
+            symbol: currentSymbol,
+            count: count,
+            amount: winAmount,
+            positions: payline.slice(0, count)
+          });
+          winCells.push(...payline.slice(0, count).map(([x,y]) => ({x,y})));
+        }
+      });
+      
+      return { wins, winCells };
     }
 
     async function spin() {
+      if (isSpinning) return;
+      
       message.textContent = "";
       let sel = betSelector.value;
       bet = sel === "max" ? balance : parseInt(sel);
@@ -253,21 +376,16 @@ const html = `
       } else updateBalanceDisplay(balance - bet);
 
       const reels = await spinReels();
-      const wins = detectWins(reels);
-      let payout = 0;
-      let winCells = [];
+      const { wins, winCells } = detectWins(reels);
+      let totalPayout = wins.reduce((sum, win) => sum + win.amount, 0);
 
-      for (let w of wins) {
-        const mult = payouts[w.symbol] || 10;
-        payout += mult * (bet / 10);
-        winCells = winCells.concat(w.matched);
+      if (totalPayout > 0) {
+        updateBalanceDisplay(balance + totalPayout);
+        message.textContent = "You won $" + totalPayout.toLocaleString() + "!";
+        if (wins.some(w => ["💎","7️⃣","🍒","🍉","🔔"].includes(w.symbol))) freeSpins += 3;
+      } else {
+        message.textContent = "No win, try again.";
       }
-
-      if (payout > 0) {
-        updateBalanceDisplay(balance + payout);
-        message.textContent = "You won $" + payout.toLocaleString();
-        if (wins.some(w => ["🌿","💨","🍃","💊","🚬"].includes(w.symbol))) freeSpins += 3;
-      } else message.textContent = "No win, try again.";
 
       draw(reels, winCells);
 
@@ -278,31 +396,51 @@ const html = `
 
       save();
 
-      if (autoSpin && balance > 0) autoSpinTimeout = setTimeout(() => spin(), 1000);
+      if (autoSpin && balance > 0 && !isSpinning) {
+        autoSpinTimeout = setTimeout(() => spin(), 1000);
+      }
     }
 
     function save() {
+      const now = Date.now();
+      if (now - lastSaveTime < 1000) return;
+      lastSaveTime = now;
+      
       const result = {
-        balance, bet, name: "${data.name}", avatar: "${data.avatar}", freeSpins
+        balance, 
+        bet,
+        name: "${data.name}", 
+        avatar: "${data.avatar}", 
+        freeSpins,
+        lastSave: new Date().toISOString()
       };
-      window.setTimeout(() => completion(result), 500);
+      window.webkit.messageHandlers.scriptable.postMessage({
+        type: "save",
+        data: result
+      });
     }
 
     function grantFreeSpins() {
       freeSpins += 50;
       message.textContent = "+50 free spins!";
+      save();
     }
 
+    alwaysWinToggle.addEventListener("change", function(e) {
+      alwaysWin = e.target.checked;
+      document.getElementById("adminPanel").classList.toggle("cheat-active", alwaysWin);
+      save();
+    });
+
     autoBtn.addEventListener("click", () => {
+      if (isSpinning) return;
       autoSpin = !autoSpin;
       updateAutoBtnStyle();
       if (autoSpin) spin();
       else if (autoSpinTimeout) clearTimeout(autoSpinTimeout);
     });
 
-    document.getElementById("spinBtn").addEventListener("click", spin);
-    document.getElementById("alwaysWinToggle").addEventListener("change", e => alwaysWin = e.target.checked);
-
+    spinBtn.addEventListener("click", spin);
     betSelector.value = bet;
     updateBalanceDisplay(balance);
     updateAutoBtnStyle();
@@ -314,7 +452,16 @@ const html = `
 
 const wv = new WebView();
 await wv.loadHTML(html);
+
+wv.messageHandlers = {
+  async save(message) {
+    if (message.type === "save") {
+      await saveGameState(message.data);
+    }
+  }
+};
+
 const result = await wv.present(true);
-if (result && typeof result === 'object') {
-  await Keychain.set(saveKey, JSON.stringify(result));
+if (result) {
+  await saveGameState(result);
 }
