@@ -1,9 +1,9 @@
-// Jokerr's 3x3 Slot Machine (Simplified Version)
-const saveKey = "slot_data_v4";
-const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸"];
+// 3x3 Slot Machine
+const saveKey = "slot_data_v6";
+const avatarOptions = ["🐶", "🐱", "🦊", "🐼", "🐵", "🐯", "🐸", "🐰", "🐻", "🐨", "🐙", "🦄", "🐷", "🐦", "🦉", "🦋", "🐞", "🦀", "🐲", "🦖"];
 const symbolPool = [
-  "🪙","🪙","🪙","🪙","🪙",
-  "🍋","🍋","🍋","🍋",
+  "🍋","🍋","🍋","🍋","🍋",
+  "🪙","🪙","🪙","🪙",
   "🔔","🔔","🔔",
   "🍉","🍉",
   "🍒",
@@ -11,21 +11,42 @@ const symbolPool = [
   "💎"
 ];
 const payouts = {
-  "🪙": [0, 2, 10, 50],
-  "🍋": [0, 3, 15, 75],
-  "🔔": [0, 5, 25, 100],
-  "🍉": [0, 10, 50, 200],
-  "🍒": [0, 15, 75, 300],
+  "🍋": [0, 2, 3, 5],
+  "🪙": [0, 3, 7, 11],
+  "🔔": [0, 5, 12, 16],
+  "🍉": [0, 10, 17, 25],
+  "🍒": [0, 15, 35, 50],
   "7️⃣": [0, 25, 100, 500],
   "💎": [0, 50, 200, 1000]
 };
 
+// XP Configuration
+const XP_PER_BET_UNIT = 0.08;
+const WIN_XP_MULTIPLIER = 0.18;
+const BASE_MAX_XP_PER_SPIN = 200;
+const MAX_FREE_SPINS = 100;
+
+function calculateXPCap(currentLevel) {
+  return Math.min(BASE_MAX_XP_PER_SPIN, 50 + Math.floor(30 * Math.log(currentLevel + 1)));
+}
+
 async function loadGameState() {
   try {
     const raw = await Keychain.get(saveKey);
-    return raw ? JSON.parse(raw) : {};
-  } catch (e) {
-    console.log("Load error:", e);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        balance: Number(parsed.balance) || 15000,
+        bet: Number(parsed.bet) || 50,
+        name: parsed.name || "Guest",
+        avatar: parsed.avatar || "🐵",
+        xp: Number(parsed.xp) || 0,
+        level: Number(parsed.level) || 1,
+        freeSpins: Math.min(Number(parsed.freeSpins) || 0, MAX_FREE_SPINS)
+      };
+    }
+    return {};
+  } catch {
     return {};
   }
 }
@@ -39,12 +60,14 @@ async function saveGameState(newData) {
       balance: Number(newData.balance) || existing.balance || 15000,
       bet: Number(newData.bet) || existing.bet || 50,
       name: newData.name || existing.name || "Guest",
-      avatar: newData.avatar || existing.avatar || "🐵"
+      avatar: newData.avatar || existing.avatar || "🐵",
+      xp: Number(newData.xp) || existing.xp || 0,
+      level: Number(newData.level) || existing.level || 1,
+      freeSpins: Math.min(Number(newData.freeSpins) || existing.freeSpins || 0, MAX_FREE_SPINS)
     };
     await Keychain.set(saveKey, JSON.stringify(merged));
     return true;
-  } catch (e) {
-    console.log("Save error:", e);
+  } catch {
     return false;
   }
 }
@@ -59,151 +82,205 @@ if (!data.name) {
   a.addAction("OK");
   await a.present();
   data.name = a.textFieldValue(0) || "Guest";
+  await saveGameState(data);
 }
 
 if (!data.avatar) {
-  const b = new Alert();
-  b.title = "Choose your avatar";
-  avatarOptions.forEach(a => b.addAction(a));
-  const choice = await b.present();
-  data.avatar = avatarOptions[choice];
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+      * { 
+        margin: 0; 
+        padding: 0; 
+        box-sizing: border-box; 
+        -webkit-user-select: none;
+      }
+      body { 
+        font-family: -apple-system; 
+        background: #111; 
+        color: white; 
+        height: 100vh; 
+        width: 100vw; 
+        overflow: hidden; 
+        display: flex; 
+        flex-direction: column; 
+        align-items: center; 
+        justify-content: center; 
+      }
+      h1 { margin-bottom: 20px; text-align: center; }
+      .avatar-grid { 
+        display: grid; 
+        grid-template-columns: repeat(4, 1fr); 
+        gap: 15px; 
+        width: 90%; 
+        max-width: 400px; 
+        max-height: 60vh; 
+        overflow-y: auto; 
+        padding: 10px; 
+      }
+      .avatar-option { 
+        font-size: 40px; 
+        padding: 10px; 
+        background: #222; 
+        border-radius: 10px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        cursor: pointer; 
+        transition: transform 0.2s; 
+      }
+      .avatar-option:hover { transform: scale(1.1); background: #333; }
+      .selected { background: #4CAF50; transform: scale(1.1); }
+    </style>
+  </head>
+  <body>
+    <h1>Choose Your Avatar</h1>
+    <div class="avatar-grid" id="avatarGrid"></div>
+    <script>
+      const avatars = ${JSON.stringify(avatarOptions)};
+      const grid = document.getElementById('avatarGrid');
+      avatars.forEach((avatar, index) => {
+        const div = document.createElement('div');
+        div.className = 'avatar-option';
+        div.textContent = avatar;
+        div.onclick = () => {
+          document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+          div.classList.add('selected');
+          window.webkit.messageHandlers.scriptable.postMessage({
+            type: "avatarSelected",
+            index: index
+          });
+        };
+        grid.appendChild(div);
+      });
+    </script>
+  </body>
+  </html>
+  `;
+
+  const wv = new WebView();
+  await wv.loadHTML(html);
+  
+  wv.messageHandlers = {
+    avatarSelected: async (message) => {
+      data.avatar = avatarOptions[message.index];
+      await saveGameState(data);
+      wv.close();
+    }
+  };
+  
+  await wv.present();
 }
 
 // Set defaults
-data.balance = data.balance ?? 15000;
-data.bet = data.bet ?? 50;
+data.balance = Number(data.balance) || 15000;
+data.bet = Number(data.bet) || 50;
+data.xp = Number(data.xp) || 0;
+data.level = Number(data.level) || 1;
+data.freeSpins = Math.min(Number(data.freeSpins) || 0, MAX_FREE_SPINS);
+data.avatar = data.avatar || "🐵";
 
-const isAdmin = data.name === "Jokerr";
+function calculateXPToNextLevel(currentLevel) {
+  return Math.floor(100 * Math.pow(currentLevel, 1.3));
+}
+
+data.xpToNextLevel = calculateXPToNextLevel(data.level);
 
 const html = `
 <!DOCTYPE html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-user-select: none; user-select: none; }
-    body {
-      font-family: -apple-system;
-      background: #111;
-      color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 12px;
+    * {
+      -webkit-user-select: none;
     }
-    #avatar {
-      font-size: 48px;
-      margin-top: 10px;
+    html, body { 
+      height: 100%; 
+      width: 100%; 
+      overflow: hidden; 
     }
-    #playerName {
-      font-size: 18px;
-      margin-bottom: 8px;
+    body { 
+      font-family: -apple-system; 
+      background: #111; 
+      color: #fff; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      padding: 12px; 
+      margin: 0; 
     }
-    #topBar {
-      font-size: 16px;
-      font-weight: bold;
-      margin: 6px 0 12px 0;
+    #avatar { 
+      font-size: 48px; 
+      margin-top: 10px; 
     }
-    #balance {
-      transition: color 0.3s;
-    }
-    #slot {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
-      width: 100%;
-      max-width: 300px;
-      aspect-ratio: 1;
-      margin: 10px 0;
-    }
-    .cell {
-      background-color: #222;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 42px;
-      transition: transform 0.2s, background-color 0.2s;
-    }
-    .win {
-      background-color: #ffd700;
-      transform: scale(1.1);
-    }
-    select, button, input {
-      font-size: 16px;
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: none;
-      margin: 4px;
-    }
-    #controls {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 10px;
-      margin: 10px 0;
-    }
-    #message {
-      font-weight: bold;
-      margin-top: 8px;
-      text-align: center;
-      min-height: 40px;
-    }
-    #adminPanel {
-      display: ${isAdmin ? "block" : "none"};
-      margin-top: 12px;
-      padding: 8px;
-      background: #222;
-      border: 1px solid #444;
-      border-radius: 8px;
-    }
-    .adminRow {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      margin-top: 6px;
-    }
-    #spinBtn {
-      width: 80px;
-      background-color: #4CAF50;
-      color: white;
-    }
-    button:disabled {
-      opacity: 0.5;
-    }
-    .cheat-active {
-      box-shadow: 0 0 10px gold;
+    #playerName { font-size: 18px; margin-bottom: 4px; }
+    #xpContainer { width: 80%; max-width: 200px; height: 12px; background: #333; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+    #xpBar { height: 100%; background: linear-gradient(to right, #4CAF50, #8BC34A); width: ${(data.xp / data.xpToNextLevel * 100)}%; transition: width 0.5s; }
+    #xpText { font-size: 10px; margin-bottom: 8px; text-align: center; }
+    #topBar { font-size: 16px; font-weight: bold; margin: 6px 0 12px 0; }
+    #balance { transition: color 0.3s; }
+    #slot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; max-width: 300px; aspect-ratio: 1; margin: 10px 0; }
+    .cell { background-color: #222; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 42px; transition: transform 0.2s, background-color 0.2s; }
+    .win { background-color: #ffd700; transform: scale(1.1); }
+    select, button, input { font-size: 16px; padding: 6px 10px; border-radius: 6px; border: none; margin: 4px; }
+    #controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 10px 0; }
+    #message { font-weight: bold; margin-top: 8px; text-align: center; min-height: 40px; }
+    #spinBtn { width: 80px; background-color: #4CAF50; color: white; }
+    button:disabled { opacity: 0.5; }
+    #freeSpinsBadge { background: #FF9800; color: white; border-radius: 10px; padding: 2px 8px; font-size: 12px; margin-top: 4px; display: ${data.freeSpins > 0 ? "block" : "none"}; }
+    .level-up { animation: pulse 0.5s 3; }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
     }
   </style>
 </head>
 <body>
   <div id="avatar">${data.avatar}</div>
   <div id="playerName">${data.name}</div>
+  <div id="xpContainer"><div id="xpBar"></div></div>
+  <div id="xpText">Level ${data.level} (${Math.floor(data.xp)}/${data.xpToNextLevel})</div>
+  <div id="freeSpinsBadge">${data.freeSpins} Free Spins!</div>
   <div id="topBar"><div id="balance">Balance: $${data.balance.toLocaleString()}</div></div>
   <div id="slot"></div>
   <div id="controls">
     <button id="spinBtn">Spin</button>
-    <select id="betSelector">${[1,5,10,20,50,100,250,500,1000,2500,5000,10000,25000,50000,100000,500000,1000000,5000000,10000000,25000000,50000000,100000000].map(v => `<option ${data.bet === v ? "selected" : ""} value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
+    <select id="betSelector">${[5,10,20,50,100,250,500,1000,2500,5000,7500,10000,25000,50000,75000,100000,500000,750000,1000000,5000000,7500000,10000000,25000000,50000000,75000000,100000000].map(v => `<option ${data.bet === v ? "selected" : ""} value="${v}">$${v.toLocaleString()}</option>`).join('')}<option value="max">Max Bet</option></select>
   </div>
   <div id="message"></div>
-  <div id="adminPanel">
-    <div><strong>Admin Panel</strong></div>
-    <div class="adminRow"><label>Always Win:</label><input type="checkbox" id="alwaysWinToggle" /></div>
-    <div class="adminRow"><button onclick="addCoins()">+$1B</button></div>
-  </div>
   <script>
     const pool = ${JSON.stringify(symbolPool)};
     const payouts = ${JSON.stringify(payouts)};
-    let balance = ${data.balance}, bet = ${data.bet}, alwaysWin = false;
+    const MAX_FREE_SPINS = ${MAX_FREE_SPINS};
+    const XP_PER_BET_UNIT = ${XP_PER_BET_UNIT};
+    const WIN_XP_MULTIPLIER = ${WIN_XP_MULTIPLIER};
+    const BASE_MAX_XP_PER_SPIN = ${BASE_MAX_XP_PER_SPIN};
+    
+    let balance = ${data.balance}, bet = ${data.bet};
     let isSpinning = false;
     let lastSaveTime = 0;
+    let xp = ${data.xp};
+    let level = ${data.level};
+    let xpToNextLevel = ${data.xpToNextLevel};
+    let freeSpins = Math.min(${data.freeSpins}, MAX_FREE_SPINS);
 
     const balanceDisplay = document.getElementById("balance");
     const slot = document.getElementById("slot");
     const message = document.getElementById("message");
     const betSelector = document.getElementById("betSelector");
     const spinBtn = document.getElementById("spinBtn");
-    const alwaysWinToggle = document.getElementById("alwaysWinToggle");
+    const xpBar = document.getElementById("xpBar");
+    const xpText = document.getElementById("xpText");
+    const freeSpinsBadge = document.getElementById("freeSpinsBadge");
+
+    function calculateXPCap(currentLevel) {
+      return Math.min(BASE_MAX_XP_PER_SPIN, 50 + Math.floor(30 * Math.log(currentLevel + 1)));
+    }
 
     function updateBalanceDisplay(newVal) {
       const delta = newVal - balance;
@@ -213,8 +290,66 @@ const html = `
       setTimeout(() => balanceDisplay.style.color = "white", 600);
     }
 
+    function updateXpDisplay(newXp, newLevel = level) {
+      xp = newXp;
+      level = newLevel;
+      xpToNextLevel = calculateXPToNextLevel(level);
+      xpBar.style.width = (xp / xpToNextLevel * 100) + "%";
+      xpText.textContent = "Level " + level + " (" + Math.floor(xp) + "/" + xpToNextLevel + ")";
+      
+      if (newLevel > level) {
+        xpText.classList.add("level-up");
+        setTimeout(() => xpText.classList.remove("level-up"), 1500);
+      }
+    }
+
+    function updateFreeSpinsDisplay(count) {
+      freeSpins = Math.min(count, MAX_FREE_SPINS);
+      freeSpinsBadge.textContent = freeSpins + " Free Spins!";
+      freeSpinsBadge.style.display = freeSpins > 0 ? "block" : "none";
+      betSelector.disabled = freeSpins > 0;
+    }
+
+    function calculateXPToNextLevel(currentLevel) {
+      return Math.floor(100 * Math.pow(currentLevel, 1.3));
+    }
+
+    function checkLevelUp() {
+      let leveledUp = false;
+      let newLevel = level;
+      let remainingXP = xp;
+      
+      while (remainingXP >= xpToNextLevel) {
+        remainingXP -= xpToNextLevel;
+        newLevel++;
+        xpToNextLevel = calculateXPToNextLevel(newLevel);
+        leveledUp = true;
+      }
+      
+      if (leveledUp) {
+        const freeSpinsEarned = newLevel - level;
+        const newFreeSpins = Math.min(freeSpins + freeSpinsEarned, MAX_FREE_SPINS);
+        updateXpDisplay(remainingXP, newLevel);
+        updateFreeSpinsDisplay(newFreeSpins);
+        message.textContent = "Level Up! You've reached level " + newLevel + " and earned " + freeSpinsEarned + " free spins!";
+        return true;
+      }
+      return false;
+    }
+
     function getSymbol() {
       return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function initializeReels() {
+      const reels = [];
+      for (let x = 0; x < 3; x++) {
+        reels[x] = [];
+        for (let y = 0; y < 3; y++) {
+          reels[x][y] = getSymbol();
+        }
+      }
+      return reels;
     }
 
     function draw(reels, wins=[]) {
@@ -234,12 +369,13 @@ const html = `
     async function spinReels() {
       isSpinning = true;
       spinBtn.disabled = true;
-      const reels = Array.from({ length: 3 }, () => Array(3).fill(""));
+      betSelector.disabled = isSpinning > 0;
+      const reels = initializeReels();
       
       for (let t = 0; t < 15; t++) {
         for (let x = 0; x < 3; x++) {
           for (let y = 0; y < 3; y++) {
-            reels[x][y] = (alwaysWin && t === 14) ? "💎" : getSymbol();
+            reels[x][y] = getSymbol();
           }
         }
         draw(reels);
@@ -255,32 +391,30 @@ const html = `
       const wins = [];
       const winCells = [];
       
-      // Check horizontal lines
+      // Check horizontal lines (rows)
       for (let y = 0; y < 3; y++) {
         if (reels[0][y] === reels[1][y] && reels[1][y] === reels[2][y]) {
           const symbol = reels[0][y];
-          const payout = payouts[symbol]?.[2] || 0;
+          const payout = payouts[symbol][3];
           if (payout > 0) {
-            wins.push({
-              symbol: symbol,
-              amount: payout * (bet / 10)
-            });
-            winCells.push(...[[0,y], [1,y], [2,y]].map(([x,y]) => ({x,y})));
+            wins.push({ symbol, count: 3, amount: payout * bet });
+            for (let x = 0; x < 3; x++) {
+              winCells.push({x, y});
+            }
           }
         }
       }
       
-      // Check vertical lines (if you want)
+      // Check vertical lines (columns)
       for (let x = 0; x < 3; x++) {
         if (reels[x][0] === reels[x][1] && reels[x][1] === reels[x][2]) {
           const symbol = reels[x][0];
-          const payout = payouts[symbol]?.[2] || 0;
+          const payout = payouts[symbol][3];
           if (payout > 0) {
-            wins.push({
-              symbol: symbol,
-              amount: payout * (bet / 10)
-            });
-            winCells.push(...[[x,0], [x,1], [x,2]].map(([x,y]) => ({x,y})));
+            wins.push({ symbol, count: 3, amount: payout * bet });
+            for (let y = 0; y < 3; y++) {
+              winCells.push({x, y});
+            }
           }
         }
       }
@@ -288,25 +422,19 @@ const html = `
       // Check diagonals
       if (reels[0][0] === reels[1][1] && reels[1][1] === reels[2][2]) {
         const symbol = reels[0][0];
-        const payout = payouts[symbol]?.[2] || 0;
+        const payout = payouts[symbol][3];
         if (payout > 0) {
-          wins.push({
-            symbol: symbol,
-            amount: payout * (bet / 10)
-          });
-          winCells.push(...[[0,0], [1,1], [2,2]].map(([x,y]) => ({x,y})));
+          wins.push({ symbol, count: 3, amount: payout * bet });
+          winCells.push({x:0, y:0}, {x:1, y:1}, {x:2, y:2});
         }
       }
       
       if (reels[2][0] === reels[1][1] && reels[1][1] === reels[0][2]) {
         const symbol = reels[2][0];
-        const payout = payouts[symbol]?.[2] || 0;
+        const payout = payouts[symbol][3];
         if (payout > 0) {
-          wins.push({
-            symbol: symbol,
-            amount: payout * (bet / 10)
-          });
-          winCells.push(...[[2,0], [1,1], [0,2]].map(([x,y]) => ({x,y})));
+          wins.push({ symbol, count: 3, amount: payout * bet });
+          winCells.push({x:2, y:0}, {x:1, y:1}, {x:0, y:2});
         }
       }
       
@@ -319,25 +447,46 @@ const html = `
       message.textContent = "";
       let sel = betSelector.value;
       bet = sel === "max" ? balance : parseInt(sel);
-      if (bet > balance || bet <= 0) {
-        message.textContent = "Not enough balance.";
-        return;
-      }
       
-      updateBalanceDisplay(balance - bet);
+      let usedFreeSpin = false;
+      if (freeSpins > 0 && bet <= balance) {
+        updateFreeSpinsDisplay(freeSpins - 1);
+        usedFreeSpin = true;
+        betSelector.disabled = true;
+      } else {
+        betSelector.disabled = false;
+        if (bet > balance || bet <= 0) {
+          message.textContent = "Not enough balance.";
+          return;
+        }
+        updateBalanceDisplay(balance - bet);
+      }
 
       const reels = await spinReels();
       const { wins, winCells } = detectWins(reels);
       let totalPayout = wins.reduce((sum, win) => sum + win.amount, 0);
 
+      // Calculate XP with level-based cap
+      const currentMaxXP = calculateXPCap(level);
+      const baseBetXP = Math.min(bet * XP_PER_BET_UNIT, currentMaxXP * 0.7);
+      const winBonusXP = totalPayout > 0 
+        ? Math.min(totalPayout * WIN_XP_MULTIPLIER, currentMaxXP * 0.3)
+        : 0;
+      const totalXPGain = Math.min(baseBetXP + winBonusXP, currentMaxXP);
+      updateXpDisplay(xp + totalXPGain);
+      
       if (totalPayout > 0) {
         updateBalanceDisplay(balance + totalPayout);
-        message.textContent = "You won $" + totalPayout.toLocaleString() + "!";
+        message.textContent = "You won $" + totalPayout.toLocaleString() + "!" + 
+          (usedFreeSpin ? " (Free Spin)" : "");
       } else {
-        message.textContent = "No win, try again.";
+        message.textContent = "No win, try again." + 
+          (usedFreeSpin ? " (Free Spin)" : "");
       }
 
+      checkLevelUp();
       draw(reels, winCells);
+      betSelector.disabled = freeSpins > 0;
       save();
     }
 
@@ -347,33 +496,34 @@ const html = `
       lastSaveTime = now;
       
       const result = {
-        balance, 
-        bet,
+        balance: balance, 
+        bet: bet,
         name: "${data.name}", 
         avatar: "${data.avatar}", 
+        xp: xp,
+        level: level,
+        freeSpins: Math.min(freeSpins, MAX_FREE_SPINS),
         lastSave: new Date().toISOString()
       };
+      
       window.webkit.messageHandlers.scriptable.postMessage({
         type: "save",
         data: result
       });
     }
 
-    function addCoins() {
-      updateBalanceDisplay(balance + 1000000000);
-      save();
-    }
-
-    alwaysWinToggle.addEventListener("change", function(e) {
-      alwaysWin = e.target.checked;
-      document.getElementById("adminPanel").classList.toggle("cheat-active", alwaysWin);
-      save();
-    });
-
+    // Initialize game
     spinBtn.addEventListener("click", spin);
     betSelector.value = bet;
     updateBalanceDisplay(balance);
-    draw(Array.from({length:3},()=>Array.from({length:3},getSymbol)));
+    updateXpDisplay(xp);
+    updateFreeSpinsDisplay(freeSpins);
+    
+    // Initialize and draw initial reels immediately
+    (function init() {
+      const initialReels = initializeReels();
+      draw(initialReels);
+    })();
   </script>
 </body>
 </html>
@@ -385,12 +535,43 @@ await wv.loadHTML(html);
 wv.messageHandlers = {
   async save(message) {
     if (message.type === "save") {
-      await saveGameState(message.data);
+      try {
+        const saveData = {
+          ...message.data,
+          balance: Number(message.data.balance),
+          bet: Number(message.data.bet),
+          xp: Number(message.data.xp),
+          level: Number(message.data.level),
+          freeSpins: Math.min(Number(message.data.freeSpins), MAX_FREE_SPINS),
+          avatar: message.data.avatar || "🐵",
+          name: message.data.name || "Guest"
+        };
+        
+        await saveGameState(saveData);
+        return { success: true };
+      } catch {
+        return { success: false };
+      }
     }
   }
 };
 
-const result = await wv.present(true);
-if (result) {
-  await saveGameState(result);
-}
+wv.onClose = async () => {
+  try {
+    const currentState = await wv.evaluateJavaScript(`({
+      balance: balance,
+      bet: bet,
+      xp: xp,
+      level: level,
+      freeSpins: Math.min(freeSpins, ${MAX_FREE_SPINS}),
+      avatar: "${data.avatar}",
+      name: "${data.name}"
+    })`);
+    
+    await saveGameState(currentState);
+  } catch {
+    // Silently handle errors on close
+  }
+};
+
+await wv.present(true);
